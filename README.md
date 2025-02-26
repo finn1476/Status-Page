@@ -18,7 +18,7 @@ Installation
 
     Clone the Repository:
 
-git clone https://github.com/your-username/your-repo.git
+git clone https://github.com/finn1476/Status-Page
 cd your-repo
 
 Configure the Database Connection:
