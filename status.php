@@ -20,7 +20,6 @@ try {
 $postData = file_get_contents('php://input');
 $data = json_decode($postData, true);
 
-// Falls keine gültigen POST-Daten vorliegen, kann man optional auf GET umstellen oder abbrechen:
 if (!$data) {
     echo json_encode(['error' => 'Keine gültigen POST-Daten erhalten']);
     exit;
@@ -28,38 +27,61 @@ if (!$data) {
 
 // Parameter aus dem POST-Request
 $status_page_uuid = isset($data['status_page_uuid']) ? $data['status_page_uuid'] : '';
-$sensor_ids_csv    = isset($data['sensor_ids']) ? $data['sensor_ids'] : '';
-$sort              = isset($data['sort']) ? $data['sort'] : '';
-$userId            = isset($data['userId']) ? $data['userId'] : '';
+$sensor_ids_csv   = isset($data['sensor_ids']) ? $data['sensor_ids'] : '';
+$sort             = isset($data['sort']) ? $data['sort'] : '';
+$userId           = isset($data['userId']) ? $data['userId'] : '';
 
-// Hier könnten weitere Prüfungen erfolgen (z. B. Abgleich der userId mit der Statuspage),
-// werden aber in diesem Beispiel nicht weiter berücksichtigt.
+// Überprüfung: UUID muss übergeben werden
+if (empty($status_page_uuid)) {
+    echo json_encode(['error' => 'Keine UUID übergeben']);
+    exit;
+}
 
-// Falls sensor_ids als CSV übergeben wurden, in ein Array umwandeln:
-$sensorIdsArray = [];
+// Überprüfen, ob die übergebene UUID zu einer Status Page gehört
+$stmtUuid = $pdo->prepare("SELECT id, sensor_ids FROM status_pages WHERE uuid = ?");
+$stmtUuid->execute([$status_page_uuid]);
+$statusPageRecord = $stmtUuid->fetch(PDO::FETCH_ASSOC);
+
+if (!$statusPageRecord) {
+    echo json_encode(['error' => 'Die angegebene UUID gehört keiner Status Page.']);
+    exit;
+}
+
+// Decodierung der in der Status Page hinterlegten Sensor-IDs (im JSON-Format)
+$allowedSensorIds = json_decode($statusPageRecord['sensor_ids'], true);
+if (!is_array($allowedSensorIds)) {
+    $allowedSensorIds = [];
+}
+
+// Verarbeitung der übergebenen sensor_ids (CSV)
+// Falls sensor_ids übergeben wurden, werden diese nur berücksichtigt, wenn sie auch in der Status Page erlaubt sind.
+$requestSensorIds = [];
 if (!empty($sensor_ids_csv)) {
-    $sensorIdsArray = array_filter(explode(',', $sensor_ids_csv), function($val) {
+    $requestSensorIds = array_filter(explode(',', $sensor_ids_csv), function($val) {
         return trim($val) !== '';
     });
+    // Überschneidung berechnen: nur erlaubte Sensoren
+    $sensorIdsArray = array_intersect($requestSensorIds, $allowedSensorIds);
+} else {
+    // Falls keine sensor_ids angegeben wurden, alle erlaubten Sensoren nutzen
+    $sensorIdsArray = $allowedSensorIds;
+}
+
+// Falls sensorIdsArray leer ist, sind keine Sensoren zum Überwachen vorhanden
+if (empty($sensorIdsArray)) {
+    echo json_encode(['error' => 'Keine gültigen Sensor-IDs angegeben oder Sensor nicht erlaubt.']);
+    exit;
 }
 
 // Hole alle zu überwachenden Services aus der Tabelle 'config'
 // Falls sensorIdsArray befüllt ist, nur diese Services abrufen:
-if (!empty($sensorIdsArray)) {
-    // Erstelle Platzhalter für die IN-Klausel
-    $placeholders = implode(',', array_fill(0, count($sensorIdsArray), '?'));
-    $sql = "SELECT id, name, url FROM config WHERE id IN ($placeholders)";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($sensorIdsArray);
-} else {
-    // Falls keine sensor_ids angegeben wurden, alle Services abrufen:
-    $stmt = $pdo->prepare("SELECT id, name, url FROM config");
-    $stmt->execute();
-}
+$placeholders = implode(',', array_fill(0, count($sensorIdsArray), '?'));
+$sql = "SELECT id, name, url FROM config WHERE id IN ($placeholders)";
+$stmt = $pdo->prepare($sql);
+$stmt->execute($sensorIdsArray);
 $monitoredServices = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 $services = [];
-
 foreach ($monitoredServices as $service) {
     $id   = $service['id'];
     $name = $service['name'];
@@ -69,11 +91,9 @@ foreach ($monitoredServices as $service) {
     $stmtLast = $pdo->prepare("SELECT status FROM uptime_checks WHERE service_url = ? ORDER BY check_time DESC LIMIT 1");
     $stmtLast->execute([$url]);
     $lastCheck = $stmtLast->fetch(PDO::FETCH_ASSOC);
-
-    // Status bestimmen: "up", wenn der letzte Check den Wert 1 hatte, sonst "down"
     $status = ($lastCheck && $lastCheck['status'] == 1) ? 'up' : 'down';
 
-    // Tägliche Uptime (letzte 90 Tage) ermitteln:
+    // Tägliche Uptime (letzte 90 Tage) ermitteln
     $stmtDaily = $pdo->prepare("
         SELECT DATE(check_time) AS day, AVG(status)*100 AS uptime 
         FROM uptime_checks 
@@ -94,15 +114,12 @@ foreach ($monitoredServices as $service) {
     foreach ($dailyData as $row) {
         $dailyUptime[$row['day']] = round($row['uptime'], 2);
     }
-
-    // Formatieren in ein Array, das an das Frontend übergeben wird:
     $dailyUptimeArray = [];
     foreach ($dailyUptime as $day => $uptimeVal) {
-        // Falls keine Daten vorhanden sind, setzen wir den Wert auf 100%
         $dailyUptimeArray[] = ['date' => $day, 'uptime' => $uptimeVal !== null ? $uptimeVal : 100];
     }
 
-    // Globale Uptime (letzte 30 Tage) ermitteln:
+    // Globale Uptime (letzte 30 Tage) ermitteln
     $stmtGlobal = $pdo->prepare("
         SELECT COUNT(*) AS totalChecks, SUM(status) AS successfulChecks
         FROM uptime_checks 
@@ -111,7 +128,6 @@ foreach ($monitoredServices as $service) {
     ");
     $stmtGlobal->execute([$url]);
     $globalData = $stmtGlobal->fetch(PDO::FETCH_ASSOC);
-
     $globalUptime = 0;
     if ($globalData && $globalData['totalChecks'] > 0) {
         $globalUptime = round(($globalData['successfulChecks'] / $globalData['totalChecks']) * 100, 2);
@@ -120,7 +136,7 @@ foreach ($monitoredServices as $service) {
     $services[] = [
         'name'   => $name,
         'status' => $status,
-        'uptime' => $globalUptime, // Globale Uptime der letzten 30 Tage
+        'uptime' => $globalUptime,
         'daily'  => $dailyUptimeArray
     ];
 }
@@ -140,6 +156,4 @@ if ($sort === 'name') {
     });
 }
 
-// An das Frontend wird das Array unter dem Schlüssel "sensors" zurückgegeben,
- // damit es zu dem in index2.php erwarteten Format passt.
 echo json_encode(['sensors' => $services]);
