@@ -238,6 +238,11 @@ $userId = $status_page['user_id'];
       color: white;
     }
     
+    .status.maintenance {
+      background-color: #f39c12;
+      color: white;
+    }
+    
     .uptime {
       margin: 15px 0;
       font-size: 16px;

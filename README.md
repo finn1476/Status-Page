@@ -1,70 +1,99 @@
-Monitoring Status Page
+# Status Page System
 
-A simple monitoring status page built with PHP and MySQL. This project allows you to create customizable status pages to display service uptime, incidents, and maintenance history. It includes an installation script to set up the necessary database and tables automatically.
-Features
+Ein modernes, selbst-gehostetes System für Statusseiten, Monitoring und Benachrichtigungen.
 
-    Customizable Status Pages: Create and display status pages based on a unique UUID.
-    Automated Database Setup: An installation script (install.php) sets up the MySQL database and all required tables.
-    Responsive Design: Modern, responsive styling using CSS with options for custom CSS per status page.
-    Easy Integration: Simple structure with separate files for the database connection, installation, and status page display.
+## Features
 
-Requirements
+- **Statusseiten**: Erstelle öffentliche Statusseiten für deine Dienste
+- **Monitoring**: Überwache deine Dienste und Website-Verfügbarkeit
+- **Benachrichtigungen**: Automatische E-Mail-Benachrichtigungen bei Ausfällen
+- **Benutzerverwaltung**: Multi-Benutzer-System mit verschiedenen Rollen
+- **Admin-Dashboard**: Umfassendes Dashboard zur Verwaltung aller Aspekte
+- **Abonnement-System**: Verschiedene Nutzungsstufen für Benutzer
 
-    PHP: Version 7.4 or later (tested on PHP 8.2)
-    MySQL/MariaDB: For the database
-    Web Server: Apache, Nginx, or any compatible server
+## Installation
 
-Installation
+### Voraussetzungen
 
-    Clone the Repository:
+- PHP 7.4 oder höher
+- MySQL 5.7/MariaDB 10.2 oder höher
+- Webserver (Apache/Nginx)
+- Die PHP-Erweiterungen: pdo, pdo_mysql, json, openssl, mbstring
 
-git clone https://github.com/finn1476/Status-Page
-cd your-repo
+### Schnellstart
 
-Configure the Database Connection:
+1. Klone das Repository in dein Webserver-Verzeichnis:
+   ```
+   git clone https://github.com/username/status-page-system.git /var/www/html
+   ```
 
-Open the db.php file and adjust the database settings as needed:
+2. Navigiere zur Installations-URL und folge den Anweisungen:
+   ```
+   http://deine-domain.de/install.php
+   ```
 
-    <?php
-    // db.php – Database connection for the "monitoring" database
-    $dbHost = 'localhost';
-    $dbName = 'monitoring';
-    $dbUser = 'root';
-    $dbPass = '';
-    // ...
-    ?>
+3. Nach der Installation kannst du dich mit dem Standard-Admin-Konto anmelden:
+   - E-Mail: admin@example.com
+   - Passwort: admin123 (bitte sofort ändern!)
 
-    Run the Installation Script:
+4. Richte im Admin-Bereich die E-Mail-Einstellungen ein:
+   ```
+   http://deine-domain.de/admin.php
+   ```
 
-    Access install.php through your browser (e.g., http://localhost/your-repo/install.php). This script will:
-        Create the monitoring database if it does not exist.
-        Create all required tables and set up foreign key constraints.
+### Manuell
 
-    Note: For security reasons, delete or restrict access to install.php after the installation is complete.
+1. Klone das Repository
+2. Erstelle eine MySQL-Datenbank
+3. Passe die `db.php` mit deinen Datenbankdaten an
+4. Importiere die Datenbankstruktur aus `database.sql`
+5. Setze entsprechende Schreibrechte für die Verzeichnisse `logs` und `uploads`
 
-    Add the check.php into a crontab.
-    Restrict access to the check.php so it cant be viewed from the Web Browser
+## Nutzung
 
-Usage
+### Administrator
 
-    Viewing a Status Page:
+Als Administrator hast du Zugriff auf:
+- Benutzerverwaltung
+- E-Mail-Konfiguration
+- System-Einstellungen
+- Gesamtüberblick über alle Statusseiten
+- Systemdiagnose
 
-    To view a status page, navigate to index.php with a valid UUID as a GET parameter:
+### Benutzer
 
-    http://yourdomain.com/index2.php?uuid=YOUR_STATUSPAGE_UUID
+Als Benutzer kannst du:
+- Eigene Statusseiten erstellen
+- Dienste zum Monitoring hinzufügen
+- Vorfälle und Wartungsarbeiten eintragen
+- E-Mail-Benachrichtigungen konfigurieren
 
-    If the UUID is missing or invalid, the system displays an error page with an appropriate message.
+## Systemdiagnose
 
-    Customizing the Page:
+Zur Diagnose deiner Installation steht der Healthcheck zur Verfügung:
+```
+http://deine-domain.de/healthcheck.php
+```
 
-    You can add custom CSS directly through the database for each status page, allowing further personalization of the layout and design.
+## Sicherheit
 
+- Alle Benutzerpasswörter werden sicher mit password_hash() gespeichert
+- E-Mail-Bestätigungen verhindern Missbrauch
+- CSRF-Schutz für alle Formulare
+- Eingabevalidierung zur Vermeidung von Injektionen
 
-Contributing
+## Entwicklung
 
-Contributions are welcome! If you have ideas for improvements or encounter any issues, please open an issue or submit a pull request.
-License
+### Verzeichnisstruktur
 
-![image](https://github.com/user-attachments/assets/ff71cb7e-247d-48f3-ad86-5f3a213a3bee)
+- `/` - Hauptdateien und Kern des Systems
+- `/logs` - Log-Dateien (muss schreibbar sein)
+- `/uploads` - Benutzer-Uploads (muss schreibbar sein)
 
-![image](https://github.com/user-attachments/assets/1da79209-a03a-4940-81d1-76212a115050)
+## Lizenz
+
+Dieses Projekt steht unter der MIT-Lizenz - siehe die [LICENSE](LICENSE) Datei für Details.
+
+## Support
+
+Bei Fragen oder Problemen öffne ein [GitHub Issue](https://github.com/username/status-page-system/issues).

@@ -35,7 +35,8 @@ if (!empty($service_id) && !in_array($service_id, $sensor_ids)) {
 $sql = "
     SELECT 
         mh.id,
-        mh.date, 
+        mh.start_date,
+        mh.end_date,
         mh.description, 
         mh.status, 
         mh.created_at, 
@@ -43,7 +44,7 @@ $sql = "
     FROM maintenance_history mh
     LEFT JOIN config c ON mh.service_id = c.id
     WHERE mh.service_id IN (" . implode(',', array_map('intval', $sensor_ids)) . " ) 
-    ORDER BY mh.date DESC
+    ORDER BY mh.start_date DESC
     LIMIT 5
 ";
 
