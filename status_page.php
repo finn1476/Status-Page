@@ -334,8 +334,8 @@ try {
         }
 
         .cards-wrapper {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            display: flex;
+            flex-direction: column;
             gap: 25px;
             margin-bottom: 40px;
         }

@@ -73,6 +73,73 @@ class EmailNotifications {
 
         return $success;
     }
+    
+    public function sendMaintenanceNotification($maintenance_id, $status_page_id) {
+        // Get maintenance details
+        $stmt = $this->pdo->prepare("
+            SELECT mh.*, sp.page_title, sp.uuid, s.name as service_name
+            FROM maintenance_history mh
+            JOIN config s ON mh.service_id = s.id
+            JOIN status_pages sp ON sp.id = ?
+            WHERE mh.id = ?
+        ");
+        $stmt->execute([$status_page_id, $maintenance_id]);
+        $maintenance = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$maintenance) {
+            return false;
+        }
+
+        // Get subscribers
+        $stmt = $this->pdo->prepare("
+            SELECT email
+            FROM email_subscribers
+            WHERE status_page_id = ? AND status = 'verified'
+        ");
+        $stmt->execute([$status_page_id]);
+        $subscribers = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($subscribers)) {
+            return false;
+        }
+
+        // Prepare email content
+        $subject = "Scheduled Maintenance: " . $maintenance['page_title'];
+        $status = ucfirst($maintenance['status']);
+        $startDate = date('Y-m-d H:i:s', strtotime($maintenance['start_date']));
+        $endDate = date('Y-m-d H:i:s', strtotime($maintenance['end_date']));
+        
+        $message = "
+            <h2>Scheduled Maintenance: {$maintenance['page_title']}</h2>
+            <p><strong>Service:</strong> {$maintenance['service_name']}</p>
+            <p><strong>Status:</strong> {$status}</p>
+            <p><strong>Description:</strong> {$maintenance['description']}</p>
+            <p><strong>Start Time:</strong> {$startDate}</p>
+            <p><strong>End Time:</strong> {$endDate}</p>
+            <p>View the full status page: <a href='" . $this->getStatusPageUrl($maintenance['uuid']) . "'>Click here</a></p>
+        ";
+
+        // Send emails
+        $success = true;
+        foreach ($subscribers as $email) {
+            if (!$this->emailConfig->sendEmail($email, $subject, $message)) {
+                $success = false;
+                // Log the error but continue with other subscribers
+                error_log("Failed to send maintenance notification to {$email}: " . $this->emailConfig->getLastError());
+            }
+        }
+
+        // Record notification (reusing the email_notifications table)
+        if ($success) {
+            $stmt = $this->pdo->prepare("
+                INSERT INTO email_notifications (status_page_id, incident_id, maintenance_id)
+                VALUES (?, NULL, ?)
+            ");
+            $stmt->execute([$status_page_id, $maintenance_id]);
+        }
+
+        return $success;
+    }
 
     public function sendVerificationEmail($email, $status_page_id, $verification_token) {
         // Get status page details

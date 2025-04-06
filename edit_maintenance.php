@@ -229,7 +229,7 @@ $end_time = $endDateTime[1];
                 <label for="status">Status:</label>
                 <select name="status" id="status" class="form-control" required>
                     <option value="scheduled" <?php echo ($maintenance['status'] == 'scheduled') ? 'selected' : ''; ?>>Scheduled</option>
-                    <option value="in progress" <?php echo ($maintenance['status'] == 'in progress') ? 'selected' : ''; ?>>In Progress</option>
+                    <option value="cancelled" <?php echo ($maintenance['status'] == 'cancelled') ? 'selected' : ''; ?>>Cancelled</option>
                     <option value="completed" <?php echo ($maintenance['status'] == 'completed') ? 'selected' : ''; ?>>Completed</option>
                 </select>
             </div>

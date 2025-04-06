@@ -1,5 +1,5 @@
 <?php
-// install.php - Datenbankinstallation für das Status-Page-System
+// install.php - Datenbankinstallation und -aktualisierung für das Status-Page-System
 
 // Konfigurationsparameter
 $dbHost = 'localhost';
@@ -8,10 +8,13 @@ $dbUser = 'root';
 $dbPass = '';
 $createDatabase = true;
 
+// Installationsmodus prüfen: "install" (Standardeinstellung) oder "update"
+$mode = isset($_GET['mode']) && $_GET['mode'] === 'update' ? 'update' : 'install';
+
 // Überprüfen, ob das Installationsskript läuft oder bereits abgeschlossen ist
 $installLockFile = __DIR__ . '/install.lock';
-if (file_exists($installLockFile)) {
-    die('Installation wurde bereits durchgeführt. Bitte löschen Sie die Datei "install.lock", wenn Sie die Installation erneut durchführen möchten.');
+if (file_exists($installLockFile) && $mode === 'install') {
+    die('Installation wurde bereits durchgeführt. Bitte löschen Sie die Datei "install.lock", wenn Sie die Installation erneut durchführen möchten, oder verwenden Sie "?mode=update" um nur die Datenbankstruktur zu aktualisieren.');
 }
 
 // HTML-Header für die Ausgabe
@@ -21,7 +24,7 @@ if (file_exists($installLockFile)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Status-Page-System - Installation</title>
+    <title>Status-Page-System - <?php echo $mode === 'update' ? 'Aktualisierung' : 'Installation'; ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
@@ -59,15 +62,24 @@ if (file_exists($installLockFile)) {
         .warning {
             color: #ffc107;
         }
+        .mode-toggle {
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Status-Page-System - Installation</h1>
+        <h1>Status-Page-System - <?php echo $mode === 'update' ? 'Aktualisierung' : 'Installation'; ?></h1>
+        
+        <div class="mode-toggle">
+            <a href="?mode=install" class="btn btn-<?php echo $mode === 'install' ? 'primary' : 'outline-primary'; ?> me-2">Installation</a>
+            <a href="?mode=update" class="btn btn-<?php echo $mode === 'update' ? 'primary' : 'outline-primary'; ?>">Aktualisierung</a>
+        </div>
+        
         <div class="progress mb-4">
             <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%" id="progress"></div>
         </div>
-        <div class="log" id="log">Starte Installation...</div>
+        <div class="log" id="log">Starte <?php echo $mode === 'update' ? 'Aktualisierung' : 'Installation'; ?>...</div>
         
         <div class="mt-4 text-center" id="finishContainer" style="display: none;">
             <a href="index.php" class="btn btn-primary">Zur Startseite</a>
@@ -93,7 +105,7 @@ if (file_exists($installLockFile)) {
         }
     </script>
 <?php
-// Starten der Installation
+// Starten der Installation oder Aktualisierung
 ob_implicit_flush(true);
 ob_end_flush();
 
@@ -111,12 +123,12 @@ try {
     
     // Datenbank erstellen falls erforderlich
     if ($createDatabase) {
-        echo "<script>updateProgress(10); appendLog('Erstelle Datenbank \"$dbName\"...');</script>";
+        echo "<script>updateProgress(10); appendLog('Erstelle Datenbank \"$dbName\" falls nicht vorhanden...');</script>";
         flush();
         
         try {
             $pdo->exec("CREATE DATABASE IF NOT EXISTS `$dbName` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci");
-            echo "<script>appendLog('Datenbank wurde erfolgreich erstellt.', 'success');</script>";
+            echo "<script>appendLog('Datenbank wurde erfolgreich erstellt oder existiert bereits.', 'success');</script>";
             flush();
         } catch (PDOException $e) {
             echo "<script>appendLog('Fehler beim Erstellen der Datenbank: " . addslashes($e->getMessage()) . "', 'error');</script>";
@@ -134,8 +146,33 @@ try {
     echo "<script>appendLog('Verbindung zur Datenbank hergestellt.', 'success');</script>";
     flush();
     
-    // Tabellen erstellen
-    echo "<script>updateProgress(20); appendLog('Erstelle Tabellen...');</script>";
+    // Hilfsfunktion zum Prüfen, ob eine Tabelle existiert
+    function tableExists($pdo, $table) {
+        try {
+            $result = $pdo->query("SELECT 1 FROM $table LIMIT 1");
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+    
+    // Hilfsfunktion zum Prüfen, ob eine Spalte in einer Tabelle existiert
+    function columnExists($pdo, $table, $column) {
+        try {
+            $stmt = $pdo->prepare("SELECT $column FROM $table LIMIT 1");
+            $stmt->execute();
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+    
+    // Tabellen erstellen/aktualisieren
+    if ($mode === 'install') {
+        echo "<script>updateProgress(20); appendLog('Erstelle Tabellen...');</script>";
+    } else {
+        echo "<script>updateProgress(20); appendLog('Überprüfe und aktualisiere Tabellen...');</script>";
+    }
     flush();
     
     // Array mit allen Tabellen und deren Erstellungsbefehlen aus database.sql
@@ -390,17 +427,52 @@ try {
     CREATE TABLE IF NOT EXISTS `email_notifications` (
       `id` int(11) NOT NULL AUTO_INCREMENT,
       `status_page_id` int(11) NOT NULL,
-      `incident_id` int(11) NOT NULL,
+      `incident_id` int(11) NULL,
       `sent_at` datetime DEFAULT current_timestamp(),
+      `maintenance_id` int(11) DEFAULT NULL,
       PRIMARY KEY (`id`),
       KEY `status_page_id` (`status_page_id`),
       KEY `incident_id` (`incident_id`),
+      KEY `maintenance_id` (`maintenance_id`),
       CONSTRAINT `fk_notifications_incident` FOREIGN KEY (`incident_id`) REFERENCES `incidents` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
-      CONSTRAINT `fk_notifications_status_page` FOREIGN KEY (`status_page_id`) REFERENCES `status_pages` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+      CONSTRAINT `fk_notifications_status_page` FOREIGN KEY (`status_page_id`) REFERENCES `status_pages` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT `email_notifications_ibfk_1` FOREIGN KEY (`maintenance_id`) REFERENCES `maintenance_history` (`id`) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
     ";
     
-    // Tabellen erstellen (Reihenfolge ist wichtig wegen Fremdschlüsselbeziehungen)
+    // custom_domains
+    $tables['custom_domains'] = "
+    CREATE TABLE IF NOT EXISTS `custom_domains` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `user_id` int(11) NOT NULL,
+      `status_page_id` int(11) NOT NULL,
+      `domain` varchar(255) NOT NULL,
+      `verified` tinyint(1) DEFAULT 0,
+      `ssl_status` ENUM('pending', 'active', 'failed') DEFAULT 'pending',
+      `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`),
+      UNIQUE KEY (`domain`),
+      FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+      FOREIGN KEY (`status_page_id`) REFERENCES `status_pages` (`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+    ";
+    
+    // Spalten-Definitionen für Aktualisierungen
+    $columns = [
+        'email_notifications' => [
+            'maintenance_id' => "ALTER TABLE `email_notifications` ADD COLUMN `maintenance_id` INT NULL AFTER `sent_at`, ADD KEY `maintenance_id` (`maintenance_id`), ADD CONSTRAINT `email_notifications_ibfk_1` FOREIGN KEY (`maintenance_id`) REFERENCES `maintenance_history` (`id`) ON DELETE CASCADE;",
+            'incident_id' => "ALTER TABLE `email_notifications` MODIFY COLUMN `incident_id` INT NULL;"
+        ],
+        'custom_domains' => [
+            'ssl_status' => "ALTER TABLE `custom_domains` ADD COLUMN `ssl_status` ENUM('pending', 'active', 'failed') DEFAULT 'pending' AFTER `verified`;"
+        ],
+        'incidents' => [
+            'title' => "ALTER TABLE `incidents` ADD COLUMN `title` VARCHAR(255) NOT NULL AFTER `status_page_id`;",
+            'impact' => "ALTER TABLE `incidents` ADD COLUMN `impact` ENUM('minor','major','critical') DEFAULT 'minor' AFTER `description`;"
+        ]
+    ];
+    
+    // Tabellen erstellen/aktualisieren (Reihenfolge ist wichtig wegen Fremdschlüsselbeziehungen)
     $tableOrder = [
         'users', 
         'user_tiers', 
@@ -416,7 +488,8 @@ try {
         'smtp_config', 
         'system_settings', 
         'uptime_checks', 
-        'email_notifications'
+        'email_notifications',
+        'custom_domains'
     ];
     
     // Erstelle alle Tabellen in der korrekten Reihenfolge
@@ -427,118 +500,195 @@ try {
         $currentTable++;
         $progress = 20 + (60 * ($currentTable / $totalTables));
         
-        echo "<script>updateProgress(" . round($progress) . "); appendLog('Erstelle Tabelle: $tableName...');</script>";
+        if ($mode === 'install') {
+            echo "<script>updateProgress(" . round($progress) . "); appendLog('Erstelle Tabelle: $tableName...');</script>";
+            flush();
+            
+            try {
+                $pdo->exec($tables[$tableName]);
+                echo "<script>appendLog('Tabelle $tableName wurde erfolgreich erstellt.', 'success');</script>";
+                flush();
+            } catch (PDOException $e) {
+                echo "<script>appendLog('Fehler beim Erstellen der Tabelle $tableName: " . addslashes($e->getMessage()) . "', 'error');</script>";
+                flush();
+            }
+        } else {
+            // Update-Modus: Prüfen, ob Tabelle existiert, sonst erstellen
+            echo "<script>updateProgress(" . round($progress) . "); appendLog('Überprüfe Tabelle: $tableName...');</script>";
+            flush();
+            
+            if (!tableExists($pdo, $tableName)) {
+                try {
+                    $pdo->exec($tables[$tableName]);
+                    echo "<script>appendLog('Tabelle $tableName wurde erstellt (existierte nicht).', 'success');</script>";
+                    flush();
+                } catch (PDOException $e) {
+                    echo "<script>appendLog('Fehler beim Erstellen der Tabelle $tableName: " . addslashes($e->getMessage()) . "', 'error');</script>";
+                    flush();
+                }
+            } else {
+                echo "<script>appendLog('Tabelle $tableName existiert bereits.', 'success');</script>";
+                
+                // Prüfen, ob Spalten aktualisiert werden müssen
+                if (isset($columns[$tableName])) {
+                    foreach ($columns[$tableName] as $columnName => $alterStatement) {
+                        if (!columnExists($pdo, $tableName, $columnName)) {
+                            try {
+                                $pdo->exec($alterStatement);
+                                echo "<script>appendLog('Spalte $columnName zur Tabelle $tableName hinzugefügt.', 'success');</script>";
+                                flush();
+                            } catch (PDOException $e) {
+                                echo "<script>appendLog('Fehler beim Hinzufügen der Spalte $columnName zur Tabelle $tableName: " . addslashes($e->getMessage()) . "', 'warning');</script>";
+                                flush();
+                            }
+                        } else {
+                            echo "<script>appendLog('Spalte $columnName in Tabelle $tableName existiert bereits.', 'success');</script>";
+                            flush();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Initialen Admin-Benutzer erstellen im Installationsmodus
+    if ($mode === 'install') {
+        echo "<script>updateProgress(85); appendLog('Erstelle Admin-Benutzer...');</script>";
         flush();
         
         try {
-            $pdo->exec($tables[$tableName]);
-            echo "<script>appendLog('Tabelle $tableName wurde erfolgreich erstellt.', 'success');</script>";
-            flush();
+            // Prüfe, ob bereits ein Admin existiert
+            $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE is_admin = 1");
+            $adminExists = $stmt->fetchColumn() > 0;
+            
+            if (!$adminExists) {
+                $adminEmail = 'admin@example.com';
+                $adminPassword = password_hash('admin123', PASSWORD_DEFAULT);
+                $adminToken = bin2hex(random_bytes(16));
+                
+                $stmt = $pdo->prepare("INSERT INTO users (name, email, password, token, verified, is_admin, role, status) VALUES ('Administrator', ?, ?, ?, 1, 1, 'admin', 'active')");
+                $stmt->execute([$adminEmail, $adminPassword, $adminToken]);
+                
+                echo "<script>appendLog('Admin-Benutzer wurde erstellt. E-Mail: $adminEmail, Passwort: admin123', 'success');</script>";
+                flush();
+            } else {
+                echo "<script>appendLog('Admin-Benutzer existiert bereits.', 'warning');</script>";
+                flush();
+            }
         } catch (PDOException $e) {
-            echo "<script>appendLog('Fehler beim Erstellen der Tabelle $tableName: " . addslashes($e->getMessage()) . "', 'error');</script>";
+            echo "<script>appendLog('Fehler beim Erstellen des Admin-Benutzers: " . addslashes($e->getMessage()) . "', 'error');</script>";
             flush();
         }
-    }
-    
-    // Initialen Admin-Benutzer erstellen
-    echo "<script>updateProgress(85); appendLog('Erstelle Admin-Benutzer...');</script>";
-    flush();
-    
-    try {
-        // Prüfe, ob bereits ein Admin existiert
-        $stmt = $pdo->query("SELECT COUNT(*) FROM users WHERE is_admin = 1");
-        $adminExists = $stmt->fetchColumn() > 0;
         
-        if (!$adminExists) {
-            $adminEmail = 'admin@example.com';
-            $adminPassword = password_hash('admin123', PASSWORD_DEFAULT);
-            $adminToken = bin2hex(random_bytes(16));
-            
-            $stmt = $pdo->prepare("INSERT INTO users (name, email, password, token, verified, is_admin, role, status) VALUES ('Administrator', ?, ?, ?, 1, 1, 'admin', 'active')");
-            $stmt->execute([$adminEmail, $adminPassword, $adminToken]);
-            
-            echo "<script>appendLog('Admin-Benutzer wurde erstellt. E-Mail: $adminEmail, Passwort: admin123', 'success');</script>";
-            flush();
-        } else {
-            echo "<script>appendLog('Admin-Benutzer existiert bereits.', 'warning');</script>";
-            flush();
-        }
-    } catch (PDOException $e) {
-        echo "<script>appendLog('Fehler beim Erstellen des Admin-Benutzers: " . addslashes($e->getMessage()) . "', 'error');</script>";
+        // Standard-Tarife erstellen
+        echo "<script>updateProgress(90); appendLog('Erstelle Standard-Tarife...');</script>";
         flush();
-    }
-    
-    // Standard-Tarife erstellen
-    echo "<script>updateProgress(90); appendLog('Erstelle Standard-Tarife...');</script>";
-    flush();
-    
-    try {
-        // Prüfe, ob bereits Tarife existieren
-        $stmt = $pdo->query("SELECT COUNT(*) FROM user_tiers");
-        $tiersExist = $stmt->fetchColumn() > 0;
         
-        if (!$tiersExist) {
-            $tiers = [
-                ['Free', 1, 3, 10, 0.00],
-                ['Basic', 2, 10, 100, 9.99],
-                ['Pro', 5, 50, 1000, 29.99],
-                ['Enterprise', 10, 100, 10000, 99.99]
+        try {
+            // Prüfe, ob bereits Tarife existieren
+            $stmt = $pdo->query("SELECT COUNT(*) FROM user_tiers");
+            $tiersExist = $stmt->fetchColumn() > 0;
+            
+            if (!$tiersExist) {
+                $tiers = [
+                    ['Free', 1, 3, 10, 0.00],
+                    ['Basic', 2, 10, 100, 9.99],
+                    ['Pro', 5, 50, 1000, 29.99],
+                    ['Enterprise', 10, 100, 10000, 99.99]
+                ];
+                
+                $stmt = $pdo->prepare("INSERT INTO user_tiers (name, max_status_pages, max_sensors, max_email_subscribers, price) VALUES (?, ?, ?, ?, ?)");
+                
+                foreach ($tiers as $tier) {
+                    $stmt->execute($tier);
+                }
+                
+                echo "<script>appendLog('Standard-Tarife wurden erstellt.', 'success');</script>";
+                flush();
+            } else {
+                echo "<script>appendLog('Tarife existieren bereits.', 'warning');</script>";
+                flush();
+            }
+        } catch (PDOException $e) {
+            echo "<script>appendLog('Fehler beim Erstellen der Standard-Tarife: " . addslashes($e->getMessage()) . "', 'error');</script>";
+            flush();
+        }
+        
+        // System-Einstellungen erstellen
+        echo "<script>updateProgress(95); appendLog('Erstelle System-Einstellungen...');</script>";
+        flush();
+        
+        try {
+            // E-Mail-Einstellungen
+            $settings = [
+                ['smtp_host', ''],
+                ['smtp_port', ''],
+                ['smtp_username', ''],
+                ['smtp_password', ''],
+                ['smtp_encryption', 'tls'],
+                ['smtp_from_email', ''],
+                ['smtp_from_name', 'Status Page'],
+                ['site_title', 'Status Page System'],
+                ['site_description', 'Überwachen Sie den Status Ihrer Dienste'],
+                ['site_name', 'Status Page System'],
+                ['contact_email', 'admin@example.com'],
+                ['maintenance_mode', '0']
             ];
             
-            $stmt = $pdo->prepare("INSERT INTO user_tiers (name, max_status_pages, max_sensors, max_email_subscribers, price) VALUES (?, ?, ?, ?, ?)");
+            $stmt = $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
             
-            foreach ($tiers as $tier) {
-                $stmt->execute($tier);
+            foreach ($settings as $setting) {
+                $stmt->execute($setting);
             }
             
-            echo "<script>appendLog('Standard-Tarife wurden erstellt.', 'success');</script>";
+            echo "<script>appendLog('System-Einstellungen wurden erstellt.', 'success');</script>";
             flush();
-        } else {
-            echo "<script>appendLog('Tarife existieren bereits.', 'warning');</script>";
+        } catch (PDOException $e) {
+            echo "<script>appendLog('Fehler beim Erstellen der System-Einstellungen: " . addslashes($e->getMessage()) . "', 'error');</script>";
             flush();
         }
-    } catch (PDOException $e) {
-        echo "<script>appendLog('Fehler beim Erstellen der Standard-Tarife: " . addslashes($e->getMessage()) . "', 'error');</script>";
+    } else {
+        // Im Update-Modus können wir die Einstellungen prüfen und aktualisieren falls nötig
+        echo "<script>updateProgress(90); appendLog('Überprüfe System-Einstellungen...');</script>";
         flush();
-    }
-    
-    // System-Einstellungen erstellen
-    echo "<script>updateProgress(95); appendLog('Erstelle System-Einstellungen...');</script>";
-    flush();
-    
-    try {
-        // E-Mail-Einstellungen
-        $settings = [
-            ['smtp_host', ''],
-            ['smtp_port', ''],
-            ['smtp_username', ''],
-            ['smtp_password', ''],
-            ['smtp_encryption', 'tls'],
-            ['smtp_from_email', ''],
-            ['smtp_from_name', 'Status Page'],
-            ['site_title', 'Status Page System'],
-            ['site_description', 'Überwachen Sie den Status Ihrer Dienste']
-        ];
         
-        $stmt = $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
-        
-        foreach ($settings as $setting) {
-            $stmt->execute($setting);
+        try {
+            // Minimale Einstellungen, die vorhanden sein sollten
+            $requiredSettings = [
+                'site_name' => 'Status Page System',
+                'contact_email' => 'admin@example.com',
+                'maintenance_mode' => '0'
+            ];
+            
+            foreach ($requiredSettings as $key => $defaultValue) {
+                $stmt = $pdo->prepare("SELECT COUNT(*) FROM system_settings WHERE setting_key = ?");
+                $stmt->execute([$key]);
+                $settingExists = $stmt->fetchColumn() > 0;
+                
+                if (!$settingExists) {
+                    $insertStmt = $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?)");
+                    $insertStmt->execute([$key, $defaultValue]);
+                    echo "<script>appendLog('Einstellung $key mit Standardwert erstellt.', 'success');</script>";
+                    flush();
+                }
+            }
+            
+            echo "<script>appendLog('System-Einstellungen wurden überprüft.', 'success');</script>";
+            flush();
+        } catch (PDOException $e) {
+            echo "<script>appendLog('Fehler beim Überprüfen der System-Einstellungen: " . addslashes($e->getMessage()) . "', 'error');</script>";
+            flush();
         }
-        
-        echo "<script>appendLog('System-Einstellungen wurden erstellt.', 'success');</script>";
-        flush();
-    } catch (PDOException $e) {
-        echo "<script>appendLog('Fehler beim Erstellen der System-Einstellungen: " . addslashes($e->getMessage()) . "', 'error');</script>";
-        flush();
     }
     
-    // Installation abschließen
-    echo "<script>updateProgress(100); appendLog('Installation abgeschlossen!', 'success');</script>";
+    // Installation/Aktualisierung abschließen
+    echo "<script>updateProgress(100); appendLog('" . ($mode === 'update' ? 'Aktualisierung' : 'Installation') . " abgeschlossen!', 'success');</script>";
     flush();
     
-    // Lock-Datei erstellen, um wiederholte Installationen zu verhindern
-    file_put_contents($installLockFile, date('Y-m-d H:i:s'));
+    // Lock-Datei erstellen, nur im Installationsmodus
+    if ($mode === 'install') {
+        file_put_contents($installLockFile, date('Y-m-d H:i:s'));
+    }
     
     echo "<script>showFinish();</script>";
     flush();

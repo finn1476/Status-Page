@@ -161,27 +161,11 @@ try {
                     
                     $stmt = $pdo->prepare("INSERT INTO maintenance_history (description, start_date, end_date, status, service_id, user_id) VALUES (?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$description, $start_datetime, $end_datetime, 'scheduled', $service_id, $_SESSION['user_id']]);
-        $message = "Wartungseintrag erfolgreich hinzugefügt!";
-    } else {
-        $message = "Bitte alle Felder ausfüllen.";
-    }
-}
-
-            if (isset($_POST['add_incident'])) {
-    $incidentDescription = clean_input($_POST['incident_description'] ?? '');
-    $incidentDate = clean_input($_POST['incident_date'] ?? '');
-    $incidentTime = clean_input($_POST['incident_time'] ?? '');
-    $service_id = clean_input($_POST['service_id'] ?? '');
-    
-    if ($incidentDescription && $incidentDate && $incidentTime && $service_id) {
-        $datetime = $incidentDate . ' ' . $incidentTime;
-        $stmt = $pdo->prepare("INSERT INTO incidents (description, date, status, service_id, user_id) VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([$incidentDescription, $datetime, 'reported', $service_id, $_SESSION['user_id']]);
-                    $incident_id = $pdo->lastInsertId();
-        $message = "Vorfall erfolgreich hinzugefügt!";
+                    $maintenance_id = $pdo->lastInsertId();
+                    $message = "Wartungseintrag erfolgreich hinzugefügt!";
                     
                     // Sende E-Mail-Benachrichtigungen
-                    if ($incident_id) {
+                    if ($maintenance_id) {
                         // Finde alle Status Pages, die diesen Service enthalten
                         $stmt = $pdo->prepare("
                             SELECT id 
@@ -198,12 +182,69 @@ try {
                             
                             // Sende Benachrichtigungen für jede betroffene Status Page
                             foreach ($status_pages as $status_page_id) {
-                                $emailNotifier->sendIncidentNotification($incident_id, $status_page_id);
+                                $emailNotifier->sendMaintenanceNotification($maintenance_id, $status_page_id);
                             }
                             
                             $message .= " E-Mail-Benachrichtigungen wurden gesendet.";
                         }
                     }
+                } else {
+                    $message = "Bitte alle Felder ausfüllen.";
+                }
+            }
+
+            if (isset($_POST['add_incident'])) {
+    $incidentDescription = clean_input($_POST['incident_description'] ?? '');
+    $incidentDate = clean_input($_POST['incident_date'] ?? '');
+    $incidentTime = clean_input($_POST['incident_time'] ?? '');
+    $service_id = clean_input($_POST['service_id'] ?? '');
+    
+    if ($incidentDescription && $incidentDate && $incidentTime && $service_id) {
+        $datetime = $incidentDate . ' ' . $incidentTime;
+        
+        // Finde die Standard-Status-Page des Benutzers oder die erste verfügbare
+        $stmt = $pdo->prepare("SELECT id FROM status_pages WHERE user_id = ? ORDER BY id ASC LIMIT 1");
+        $stmt->execute([$_SESSION['user_id']]);
+        $status_page = $stmt->fetch(PDO::FETCH_ASSOC);
+        $status_page_id = $status_page ? $status_page['id'] : 0;
+        
+        if ($status_page_id) {
+            // Verwende die Beschreibung auch als Titel
+            $title = $incidentDescription;
+            
+            // Füge den Incident mit status_page_id und title hinzu
+            $stmt = $pdo->prepare("INSERT INTO incidents (title, description, date, status, service_id, user_id, status_page_id, impact) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$title, $incidentDescription, $datetime, 'reported', $service_id, $_SESSION['user_id'], $status_page_id, 'minor']);
+            $incident_id = $pdo->lastInsertId();
+            $message = "Vorfall erfolgreich hinzugefügt!";
+            
+            // Sende E-Mail-Benachrichtigungen
+            if ($incident_id) {
+                // Finde alle Status Pages, die diesen Service enthalten
+                $stmt = $pdo->prepare("
+                    SELECT id 
+                    FROM status_pages 
+                    WHERE JSON_CONTAINS(sensor_ids, ?) OR service_id = ?
+                ");
+                $stmt->execute([json_encode($service_id), $service_id]);
+                $status_pages = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                
+                if (!empty($status_pages)) {
+                    // Lade die E-Mail-Benachrichtigungsklasse
+                    require_once 'email_notifications.php';
+                    $emailNotifier = new EmailNotifications($pdo);
+                    
+                    // Sende Benachrichtigungen für jede betroffene Status Page
+                    foreach ($status_pages as $status_page_id) {
+                        $emailNotifier->sendIncidentNotification($incident_id, $status_page_id);
+                    }
+                    
+                    $message .= " E-Mail-Benachrichtigungen wurden gesendet.";
+                }
+            }
+        } else {
+            $error = "Keine Status Page gefunden. Bitte erstellen Sie zuerst eine Status Page.";
+        }
     } else {
         $message = "Bitte alle Felder ausfüllen.";
     }
@@ -245,6 +286,19 @@ try {
                     $message = "Service deleted successfully.";
                 }
             }
+
+            if (isset($_POST['add_domain'])) {
+                $domain = clean_input($_POST['domain'] ?? '');
+                $status_page_id = clean_input($_POST['domain_status_page_id'] ?? '');
+                
+                if ($domain && $status_page_id) {
+                    $stmt = $pdo->prepare("INSERT INTO custom_domains (domain, status_page_id, user_id) VALUES (?, ?, ?)");
+                    $stmt->execute([$domain, $status_page_id, $_SESSION['user_id']]);
+                    $message = "Domain erfolgreich hinzugefügt!";
+                } else {
+                    $message = "Bitte alle Felder ausfüllen.";
+                }
+            }
         }
     }
 
@@ -271,7 +325,7 @@ try {
             
             // Überprüfung eines Bestätigungsparameters für DELETE-Aktionen
             if ((isset($_GET['delete_service']) || isset($_GET['delete_maintenance']) || 
-                isset($_GET['delete_incident']) || isset($_GET['delete_status_page'])) && 
+                isset($_GET['delete_incident']) || isset($_GET['delete_status_page']) || isset($_GET['delete_domain'])) && 
                 (!isset($_GET['confirm']) || $_GET['confirm'] !== 'true')) {
                 $error = "Please confirm this deletion by adding '&confirm=true' to the URL.";
             }
@@ -349,6 +403,95 @@ try {
         } else {
                         $error = "Status Page nicht gefunden oder keine Berechtigung!";
                     }
+                }
+            }
+
+            if (isset($_GET['delete_domain']) && isset($_GET['confirm']) && $_GET['confirm'] === 'true') {
+                $id = $_GET['delete_domain'] ?? '';
+                if ($id) {
+                    $stmt = $pdo->prepare("DELETE FROM custom_domains WHERE id = ? AND user_id = ?");
+                    $stmt->execute([$id, $user_id_for_action]);
+                    if ($stmt->rowCount() > 0) {
+                        $message = "Domain erfolgreich gelöscht!";
+                    } else {
+                        $error = "Domain nicht gefunden oder keine Berechtigung!";
+                    }
+                }
+            }
+
+            if (isset($_GET['verify_domain'])) {
+                $domain_id = (int)$_GET['verify_domain'];
+                
+                // Prüfe, ob die Domain dem Benutzer gehört
+                $stmt = $pdo->prepare("
+                    SELECT cd.* FROM custom_domains cd
+                    WHERE cd.id = ? AND cd.user_id = ?
+                ");
+                $stmt->execute([$domain_id, $_SESSION['user_id']]);
+                $domain = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($domain) {
+                    // Führe die CNAME-Überprüfung durch
+                    $domain_name = $domain['domain'];
+                    $expected_target = $_SERVER['HTTP_HOST'];
+                    
+                    // DNS-Lookup durchführen
+                    $dns_records = dns_get_record($domain_name, DNS_CNAME);
+                    $verified = false;
+                    
+                    foreach ($dns_records as $record) {
+                        if (isset($record['target']) && ($record['target'] === $expected_target || $record['target'] === $expected_target . '.')) {
+                            $verified = true;
+                            break;
+                        }
+                    }
+                    
+                    if ($verified) {
+                        // Domain als verifiziert markieren
+                        $stmt = $pdo->prepare("UPDATE custom_domains SET verified = 1 WHERE id = ?");
+                        $stmt->execute([$domain_id]);
+                        $message = "Domain erfolgreich verifiziert!";
+
+                        // Certbot-Script im Hintergrund ausführen
+                        $domain_name = escapeshellarg($domain_name);
+                        $email = escapeshellarg($_SESSION['user_email']);
+                        $cmd = "/var/www/html/scripts/certbot_request.sh $domain_name $email > /dev/null 2>&1 &";
+                        exec($cmd);
+                        
+                        $message .= " Ein SSL-Zertifikat wird im Hintergrund angefordert. Dies kann einige Minuten dauern.";
+                    } else {
+                        $error = "Die Domain konnte nicht verifiziert werden. Bitte stellen Sie sicher, dass der CNAME-Eintrag korrekt eingerichtet ist und auf {$expected_target} zeigt.";
+                    }
+                } else {
+                    $error = "Domain nicht gefunden oder keine Berechtigung!";
+                }
+            }
+
+            if (isset($_GET['request_ssl'])) {
+                $domain_id = (int)$_GET['request_ssl'];
+                
+                // Prüfe, ob die Domain dem Benutzer gehört und verifiziert ist
+                $stmt = $pdo->prepare("
+                    SELECT cd.* FROM custom_domains cd
+                    WHERE cd.id = ? AND cd.user_id = ? AND cd.verified = 1
+                ");
+                $stmt->execute([$domain_id, $_SESSION['user_id']]);
+                $domain = $stmt->fetch(PDO::FETCH_ASSOC);
+                
+                if ($domain) {
+                    // SSL-Status auf "pending" setzen
+                    $stmt = $pdo->prepare("UPDATE custom_domains SET ssl_status = 'pending' WHERE id = ?");
+                    $stmt->execute([$domain_id]);
+                    
+                    // Certbot-Script im Hintergrund ausführen
+                    $domain_name = escapeshellarg($domain['domain']);
+                    $email = escapeshellarg($_SESSION['user_email']);
+                    $cmd = "/var/www/html/scripts/certbot_request.sh $domain_name $email > /dev/null 2>&1 &";
+                    exec($cmd);
+                    
+                    $message = "SSL-Zertifikatsanforderung für die Domain {$domain['domain']} wurde gestartet. Dies kann einige Minuten dauern.";
+                } else {
+                    $error = "Domain nicht gefunden, nicht verifiziert oder keine Berechtigung!";
                 }
             }
         }
@@ -532,38 +675,68 @@ try {
             </div>
         </div>
 
-        <!-- Quick Actions -->
-        <div class="row mb-4">
-            <div class="col-md-12">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0">Quick Actions</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-3">
-                                <button type="button" class="btn btn-primary w-100 mb-2 <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'btn-disabled' : ''; ?>" 
-                                        data-bs-toggle="modal" data-bs-target="#addStatusPageModal"
-                                        <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'disabled' : ''; ?>>
-                                    <i class="bi bi-plus-circle"></i> Create Status Page
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button type="button" class="btn btn-success w-100 mb-2 <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'btn-disabled' : ''; ?>" 
-                                        data-bs-toggle="modal" data-bs-target="#addSensorModal"
-                                        <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'disabled' : ''; ?>>
-                                    <i class="bi bi-plus-circle"></i> Add Sensor
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button type="button" class="btn btn-warning w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addMaintenanceModal">
-                                    <i class="bi bi-tools"></i> Schedule Maintenance
-                                </button>
-                            </div>
-                            <div class="col-md-3">
-                                <button type="button" class="btn btn-danger w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addIncidentModal">
-                                    <i class="bi bi-exclamation-triangle"></i> Report Incident
-                                </button>
+        <!-- Main Content Tabs -->
+        <ul class="nav nav-pills nav-fill mb-4">
+            <li class="nav-item">
+                <a class="nav-link" href="#overview">Overview</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#sensors_tab">Sensors</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#incidents_tab">Incidents</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#maintenance_tab">Maintenance</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#status_pages_tab">Status Pages</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#domains_tab">Domains</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#settings_tab">Settings</a>
+            </li>
+        </ul>
+
+        <!-- Content Sections -->
+        <!-- Overview Section -->
+        <div id="overview" class="mb-5">
+            <h2 class="border-bottom pb-2 mb-4">Overview</h2>
+            <!-- Quick Actions -->
+            <div class="row mb-4">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Quick Actions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-primary w-100 mb-2 <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'btn-disabled' : ''; ?>" 
+                                            data-bs-toggle="modal" data-bs-target="#addStatusPageModal"
+                                            <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'disabled' : ''; ?>>
+                                        <i class="bi bi-plus-circle"></i> Create Status Page
+                                    </button>
+                                </div>
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-success w-100 mb-2 <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'btn-disabled' : ''; ?>" 
+                                            data-bs-toggle="modal" data-bs-target="#addSensorModal"
+                                            <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'disabled' : ''; ?>>
+                                        <i class="bi bi-plus-circle"></i> Add Sensor
+                                    </button>
+                                </div>
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-warning w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addMaintenanceModal">
+                                        <i class="bi bi-tools"></i> Schedule Maintenance
+                                    </button>
+                                </div>
+                                <div class="col-md-3">
+                                    <button type="button" class="btn btn-danger w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addIncidentModal">
+                                        <i class="bi bi-exclamation-triangle"></i> Report Incident
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -571,316 +744,591 @@ try {
             </div>
         </div>
 
-        <!-- Add Status Page Modal -->
-        <div class="modal fade" id="addStatusPageModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Create Status Page</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-        <form method="POST">
-                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                            <div class="form-group">
-                                <label for="page_title">Seiten-Titel</label>
-                                <input type="text" id="page_title" name="page_title" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="sensor_ids">Sensoren auswählen (Mehrfachauswahl möglich)</label>
-                                <select id="sensor_ids" name="sensor_ids[]" class="form-control" multiple>
-                                    <?php foreach($sensors as $sensor): ?>
-                                        <option value="<?php echo $sensor['id']; ?>"><?php echo htmlspecialchars($sensor['name']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="custom_css">Benutzerdefiniertes CSS (optional)</label>
-                                <textarea id="custom_css" name="custom_css" class="form-control"></textarea>
-                            </div>
-                            <button type="submit" name="add_statuspage" class="btn btn-primary">Create</button>
-                        </form>
+        <!-- Sensors Section -->
+        <div id="sensors_tab" class="mb-5">
+            <h2 class="border-bottom pb-2 mb-4">Sensors</h2>
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                    <h5 class="m-0">Sensors</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>URL</th>
+                                    <th>Sensor Type</th>
+                                    <th>Status</th>
+                                    <th>Last Check</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($sensors as $sensor): ?>
+                                    <tr>
+                                        <td><?php echo htmlspecialchars($sensor['name']); ?></td>
+                                        <td><?php echo htmlspecialchars($sensor['url']); ?></td>
+                                        <td><?php echo htmlspecialchars($sensor['sensor_type']); ?></td>
+                                        <td>
+                                            <span class="badge bg-<?php echo $sensor['last_status'] ? 'success' : 'danger'; ?>">
+                                                <?php echo $sensor['last_status'] ? 'Up' : 'Down'; ?>
+                                            </span>
+                                        </td>
+                                        <td><?php echo $sensor['last_check'] ? date('Y-m-d H:i:s', strtotime($sensor['last_check'])) : 'Never'; ?></td>
+                                        <td>
+                                            <a href="edit_sensor.php?id=<?php echo $sensor['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
+                                            <a href="?delete_service=<?php echo $sensor['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Add Sensor Modal -->
-        <div class="modal fade" id="addSensorModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Add Sensor</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-        <form method="POST">
-            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-            <div class="form-group">
-                <label for="name">Service Name</label>
-                                <input type="text" id="name" name="name" class="form-control" required>
-            </div>
-            <div class="form-group">
-                <label for="url">Service URL</label>
-                                <input type="url" id="url" name="url" class="form-control" required>
-            </div>
-            <div class="form-group">
-                <label for="sensor_type">Sensor Typ</label>
-                                <select id="sensor_type" name="sensor_type" class="form-control" required>
-                    <option value="">-- Bitte Sensor Typ wählen --</option>
-                    <option value="http">HTTP</option>
-                    <option value="ping">Ping</option>
-                    <option value="port">Port Check</option>
-                    <option value="dns">DNS Check</option>
-                    <option value="smtp">SMTP Check</option>
-                    <option value="custom">Custom</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="sensor_config">Sensor Konfiguration</label>
-                                <input type="text" id="sensor_config" name="sensor_config" class="form-control" placeholder="z. B. erlaubte HTTP-Codes, Portnummer etc." required>
-            </div>
-                            <button type="submit" name="add_service" class="btn btn-primary">Add</button>
-        </form>
+        <!-- Incidents Section -->
+        <div id="incidents_tab" class="mb-5">
+            <h2 class="border-bottom pb-2 mb-4">Incidents</h2>
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                    <h5 class="m-0">Incidents</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Service</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($recentIncidents as $incident): ?>
+                                <tr>
+                                    <td><?php echo date('Y-m-d H:i:s', strtotime($incident['date'])); ?></td>
+                                    <td><?php echo htmlspecialchars($incident['service_name'] ?? 'All Services'); ?></td>
+                                    <td><?php echo htmlspecialchars($incident['description']); ?></td>
+                                    <td>
+                                        <span class="badge bg-<?php 
+                                            echo $incident['status'] === 'resolved' ? 'success' : 
+                                                ($incident['status'] === 'in progress' ? 'warning' : 'danger'); 
+                                        ?>">
+                                            <?php echo ucfirst($incident['status']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <a href="edit_incident.php?id=<?php echo $incident['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
+                                        <a href="?delete_incident=<?php echo $incident['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Add Maintenance Modal -->
-        <div class="modal fade" id="addMaintenanceModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Schedule Maintenance</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form method="POST">
-                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                            <div class="form-group">
-                                <label for="description">Beschreibung</label>
-                                <input type="text" id="description" name="description" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="start_date">Start Datum</label>
-                                <input type="date" id="start_date" name="start_date" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="start_time">Start Zeit</label>
-                                <input type="time" id="start_time" name="start_time" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="end_date">Ende Datum</label>
-                                <input type="date" id="end_date" name="end_date" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="end_time">Ende Zeit</label>
-                                <input type="time" id="end_time" name="end_time" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="service_id">Service</label>
-                                <select id="service_id" name="service_id" class="form-control" required>
-                                    <option value="">-- Bitte Service wählen --</option>
-                                    <?php foreach($sensors as $sensor): ?>
-                                        <option value="<?php echo $sensor['id']; ?>"><?php echo htmlspecialchars($sensor['name']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <button type="submit" name="add_maintenance" class="btn btn-primary">Schedule</button>
-                        </form>
+        <!-- Maintenance Section -->
+        <div id="maintenance_tab" class="mb-5">
+            <h2 class="border-bottom pb-2 mb-4">Maintenance</h2>
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                    <h5 class="m-0">Maintenance</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Service</th>
+                                    <th>Description</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($maintenanceHistory as $maintenance): ?>
+                                    <tr>
+                                        <td><?php echo date('Y-m-d H:i:s', strtotime($maintenance['date'])); ?></td>
+                                        <td><?php echo htmlspecialchars($maintenance['service_name'] ?? 'All Services'); ?></td>
+                                        <td><?php echo htmlspecialchars($maintenance['description']); ?></td>
+                                        <td>
+                                            <span class="badge bg-<?php 
+                                                echo $maintenance['status'] === 'completed' ? 'success' : 
+                                                    ($maintenance['status'] === 'scheduled' ? 'warning' : 'danger'); 
+                                            ?>">
+                                                <?php echo ucfirst($maintenance['status']); ?>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <a href="edit_maintenance.php?id=<?php echo $maintenance['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
+                                            <a href="?delete_maintenance=<?php echo $maintenance['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Add Incident Modal -->
-        <div class="modal fade" id="addIncidentModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Report Incident</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form method="POST">
-                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                            <div class="form-group">
-                                <label for="incident_description">Beschreibung</label>
-                                <input type="text" id="incident_description" name="incident_description" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="incident_date">Datum</label>
-                                <input type="date" id="incident_date" name="incident_date" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="incident_time">Zeit</label>
-                                <input type="time" id="incident_time" name="incident_time" class="form-control" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="service_id">Service</label>
-                                <select id="service_id" name="service_id" class="form-control" required>
-                                    <option value="">-- Bitte Service wählen --</option>
-                                    <?php foreach($sensors as $sensor): ?>
-                                        <option value="<?php echo $sensor['id']; ?>"><?php echo htmlspecialchars($sensor['name']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <button type="submit" name="add_incident" class="btn btn-primary">Report</button>
-        </form>
+        <!-- Status Pages Section -->
+        <div id="status_pages_tab" class="mb-5">
+            <h2 class="border-bottom pb-2 mb-4">Status Pages</h2>
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                    <h5 class="m-0">Status Pages</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Sensors</th>
+                                    <th>Subscribers</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($statusPages as $page): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($page['page_title']); ?></td>
+                                    <td><?php echo $page['sensor_count']; ?></td>
+                                    <td><?php echo $page['subscriber_count']; ?></td>
+                                    <td>
+                                        <a href="status_page.php?status_page_uuid=<?php echo $page['uuid']; ?>" class="btn btn-sm btn-info">View</a>
+                                        <a href="edit_status_page.php?id=<?php echo $page['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
+                                        <a href="?delete_status_page=<?php echo $page['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure? This will also delete all subscriptions.')">Delete</a>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Bestehende Services -->
-        <div class="section">
-        <h2>Bestehende Services</h2>
-            <div class="table-responsive">
-                <table class="table">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>URL</th>
-                    <th>Sensor Typ</th>
-                            <th>Status</th>
-                            <th>Last Check</th>
-                    <th>Aktionen</th>
-                </tr>
-            </thead>
-            <tbody>
-                        <?php foreach ($sensors as $sensor): ?>
-                            <tr>
-                                <td><?php echo htmlspecialchars($sensor['name']); ?></td>
-                                <td><?php echo htmlspecialchars($sensor['url']); ?></td>
-                                <td><?php echo htmlspecialchars($sensor['sensor_type']); ?></td>
-                                <td>
-                                    <span class="badge bg-<?php echo $sensor['last_status'] ? 'success' : 'danger'; ?>">
-                                        <?php echo $sensor['last_status'] ? 'Up' : 'Down'; ?>
-                                    </span>
-                                </td>
-                                <td><?php echo $sensor['last_check'] ? date('Y-m-d H:i:s', strtotime($sensor['last_check'])) : 'Never'; ?></td>
-                                <td>
-                                    <a href="edit_sensor.php?id=<?php echo $sensor['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
-                                    <a href="?delete_service=<?php echo $sensor['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+        <!-- Custom Domains Section -->
+        <div id="domains_tab" class="mb-5">
+            <h2 class="border-bottom pb-2 mb-4">Custom Domains</h2>
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="m-0">Custom Domains</h5>
+                </div>
+                <div class="card-body">
+                    <!-- Domain hinzufügen -->
+                    <form method="POST" class="mb-4">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="row align-items-end">
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="domain">Domain:</label>
+                                    <input type="text" name="domain" id="domain" class="form-control" placeholder="e.g. status.mydomain.com" required>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="form-group">
+                                    <label for="domain_status_page_id">Status Page:</label>
+                                    <select name="domain_status_page_id" id="domain_status_page_id" class="form-control" required>
+                                        <?php 
+                                        // Status Pages des Benutzers abrufen
+                                        $stmt = $pdo->prepare("SELECT id, page_title FROM status_pages WHERE user_id = ?");
+                                        $stmt->execute([$_SESSION['user_id']]);
+                                        $user_status_pages = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                                        
+                                        if (empty($user_status_pages)) {
+                                            echo '<option value="" disabled>No Status Pages available</option>';
+                                        } else {
+                                            foreach ($user_status_pages as $page) {
+                                                echo '<option value="' . $page['id'] . '">' . htmlspecialchars($page['page_title']) . '</option>';
+                                            }
+                                        }
+                                        ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <button type="submit" name="add_domain" class="btn btn-success w-100">Add Domain</button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <h6 class="mb-3 mt-4 border-bottom pb-2">Instructions for setting up your own domain:</h6>
+                    <ol class="mb-4">
+                        <li>Add your domain above (e.g. status.mydomain.com)</li>
+                        <li>Create a CNAME record in your DNS that points to <strong><?php echo $_SERVER['HTTP_HOST']; ?></strong></li>
+                        <li>Wait for DNS changes to take effect (may take up to 24 hours)</li>
+                        <li>Click "Verify" to check if the CNAME is set up correctly</li>
+                        <li>After successful verification, your domain is ready to use!</li>
+                    </ol>
+
+                    <!-- Bestehende Domains anzeigen -->
+                    <h6 class="border-bottom pb-2 mb-4">Your Domains</h6>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Domain</th>
+                                    <th>Status Page</th>
+                                    <th>Domain Status</th>
+                                    <th>SSL Status</th>
+                                    <th>Added on</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                // Benutzerdefinierte Domains abrufen
+                                $stmt = $pdo->prepare("
+                                    SELECT cd.*, sp.page_title 
+                                    FROM custom_domains cd
+                                    JOIN status_pages sp ON cd.status_page_id = sp.id
+                                    WHERE cd.user_id = ?
+                                    ORDER BY cd.created_at DESC
+                                ");
+                                $stmt->execute([$_SESSION['user_id']]);
+                                $domains = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                                if (empty($domains)) {
+                                    echo '<tr><td colspan="6" class="text-center">No custom domains available</td></tr>';
+                                } else {
+                                    foreach ($domains as $domain) {
+                                        $status = $domain['verified'] ? 
+                                            '<span class="badge bg-success">Verified</span>' : 
+                                            '<span class="badge bg-warning text-dark">Not verified</span>';
+                                        
+                                        // SSL-Status bestimmen
+                                        $ssl_status = '';
+                                        if (!$domain['verified']) {
+                                            $ssl_status = '<span class="badge bg-secondary">Not available</span>';
+                                        } else {
+                                            switch ($domain['ssl_status']) {
+                                                case 'active':
+                                                    $ssl_status = '<span class="badge bg-success">Active</span>';
+                                                    break;
+                                                case 'failed':
+                                                    $ssl_status = '<span class="badge bg-danger">Failed</span>';
+                                                    break;
+                                                default: // 'pending'
+                                                    $ssl_status = '<span class="badge bg-info">Pending</span>';
+                                            }
+                                        }
+                                        
+                                        echo '<tr>';
+                                        echo '<td>' . htmlspecialchars($domain['domain']) . '</td>';
+                                        echo '<td>' . htmlspecialchars($domain['page_title']) . '</td>';
+                                        echo '<td>' . $status . '</td>';
+                                        echo '<td>' . $ssl_status . '</td>';
+                                        echo '<td>' . date('Y-m-d H:i', strtotime($domain['created_at'])) . '</td>';
+                                        echo '<td>';
+                                        
+                                        if (!$domain['verified']) {
+                                            echo '<a href="?verify_domain=' . $domain['id'] . '" class="btn btn-sm btn-primary me-1">Verify</a>';
+                                        } else if ($domain['ssl_status'] !== 'active') {
+                                            echo '<a href="?request_ssl=' . $domain['id'] . '" class="btn btn-sm btn-success me-1">Request SSL</a>';
+                                        }
+                                        
+                                        echo '<a href="?delete_domain=' . $domain['id'] . '" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to delete this domain?\');">Delete</a>';
+                                        echo '</td>';
+                                        echo '</tr>';
+                                    }
+                                }
+                                ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Maintenance History -->
-        <div class="section">
-            <h2>Maintenance History</h2>
-            <div class="table-responsive">
-                <table class="table">
-                <thead>
-                    <tr>
-                        <th>Datum</th>
-                        <th>Service</th>
-                        <th>Beschreibung</th>
-                        <th>Status</th>
-                        <th>Aktionen</th>
-                    </tr>
-                </thead>
-                <tbody>
-                        <?php foreach ($maintenanceHistory as $maintenance): ?>
-                            <tr>
-                                <td><?php echo date('Y-m-d H:i:s', strtotime($maintenance['date'])); ?></td>
-                                <td><?php echo htmlspecialchars($maintenance['service_name'] ?? 'All Services'); ?></td>
-                                <td><?php echo htmlspecialchars($maintenance['description']); ?></td>
-                                <td>
-                                    <span class="badge bg-<?php 
-                                        echo $maintenance['status'] === 'completed' ? 'success' : 
-                                            ($maintenance['status'] === 'scheduled' ? 'warning' : 'danger'); 
-                                    ?>">
-                                        <?php echo ucfirst($maintenance['status']); ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <a href="edit_maintenance.php?id=<?php echo $maintenance['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
-                                    <a href="?delete_maintenance=<?php echo $maintenance['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+        <!-- Settings Section -->
+        <div id="settings_tab" class="mb-5">
+            <h2 class="border-bottom pb-2 mb-4">Settings</h2>
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="m-0">Settings</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" class="mb-4">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="form-group mb-3">
+                            <label for="email">Email Address:</label>
+                            <input type="email" name="email" id="email" class="form-control" value="<?php echo htmlspecialchars($_SESSION['user_email']); ?>" required>
+                        </div>
+                        <div class="form-group mb-3">
+                            <label for="password">New Password (leave empty to keep current):</label>
+                            <input type="password" name="password" id="password" class="form-control">
+                        </div>
+                        <div class="form-group mb-3">
+                            <label for="password_confirm">Confirm New Password:</label>
+                            <input type="password" name="password_confirm" id="password_confirm" class="form-control">
+                        </div>
+                        <button type="submit" name="update_settings" class="btn btn-primary">Save Settings</button>
+                    </form>
+                </div>
             </div>
         </div>
-
-        <!-- Recent Incidents -->
-        <div class="section">
-            <h2>Recent Incidents</h2>
-            <div class="table-responsive">
-                <table class="table">
-                <thead>
-                    <tr>
-                        <th>Datum</th>
-                        <th>Service</th>
-                        <th>Beschreibung</th>
-                        <th>Status</th>
-                        <th>Aktionen</th>
-                    </tr>
-                </thead>
-                <tbody>
-                        <?php foreach ($recentIncidents as $incident): ?>
-                        <tr>
-                                <td><?php echo date('Y-m-d H:i:s', strtotime($incident['date'])); ?></td>
-                                <td><?php echo htmlspecialchars($incident['service_name'] ?? 'All Services'); ?></td>
-                            <td><?php echo htmlspecialchars($incident['description']); ?></td>
-                                <td>
-                                    <span class="badge bg-<?php 
-                                        echo $incident['status'] === 'resolved' ? 'success' : 
-                                            ($incident['status'] === 'in progress' ? 'warning' : 'danger'); 
-                                    ?>">
-                                        <?php echo ucfirst($incident['status']); ?>
-                                    </span>
-                                </td>
-                                <td>
-                                    <a href="edit_incident.php?id=<?php echo $incident['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
-                                    <a href="?delete_incident=<?php echo $incident['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-        </div>
-
-        <!-- Status Pages -->
-<div class="section">
-            <h2>Status Pages</h2>
-            <div class="table-responsive">
-                <table class="table">
-        <thead>
-            <tr>
-                <th>Titel</th>
-                            <th>Sensoren</th>
-                            <th>Subscribers</th>
-                            <th>Aktionen</th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($statusPages as $page): ?>
-            <tr>
-                <td><?php echo htmlspecialchars($page['page_title']); ?></td>
-                                <td><?php echo $page['sensor_count']; ?></td>
-                                <td><?php echo $page['subscriber_count']; ?></td>
-                                <td>
-                                    <a href="status_page.php?status_page_uuid=<?php echo $page['uuid']; ?>" class="btn btn-sm btn-info">View</a>
-                                    <a href="edit_status_page.php?id=<?php echo $page['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
-                                    <a href="?delete_status_page=<?php echo $page['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure? This will also delete all subscriptions.')">Delete</a>
-                </td>
-            </tr>
-            <?php endforeach; ?>
-        </tbody>
-    </table>
-</div>
     </div>
+
+    <!-- Add Status Page Modal -->
+    <div class="modal fade" id="addStatusPageModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Status Page</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="form-group">
+                            <label for="page_title">Page Title</label>
+                            <input type="text" id="page_title" name="page_title" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="sensor_ids">Select Sensors (Multiple Selection)</label>
+                            <select id="sensor_ids" name="sensor_ids[]" class="form-control" multiple>
+                                <?php foreach($sensors as $sensor): ?>
+                                    <option value="<?php echo $sensor['id']; ?>"><?php echo htmlspecialchars($sensor['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="custom_css">Custom CSS (optional)</label>
+                            <textarea id="custom_css" name="custom_css" class="form-control"></textarea>
+                        </div>
+                        <button type="submit" name="add_statuspage" class="btn btn-primary">Create</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Sensor Modal -->
+    <div class="modal fade" id="addSensorModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Add Sensor</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="form-group">
+                            <label for="name">Service Name</label>
+                            <input type="text" id="name" name="name" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="url">Service URL</label>
+                            <input type="url" id="url" name="url" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="sensor_type">Sensor Type</label>
+                            <select id="sensor_type" name="sensor_type" class="form-control" required>
+                                <option value="">-- Please select sensor type --</option>
+                                <option value="http">HTTP</option>
+                                <option value="ping">Ping</option>
+                                <option value="port">Port Check</option>
+                                <option value="dns">DNS Check</option>
+                                <option value="smtp">SMTP Check</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sensor_config">Sensor Configuration</label>
+                            <input type="text" id="sensor_config" name="sensor_config" class="form-control" placeholder="e.g. allowed HTTP codes, port number, etc." required>
+                        </div>
+                        <button type="submit" name="add_service" class="btn btn-primary">Add</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Maintenance Modal -->
+    <div class="modal fade" id="addMaintenanceModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Schedule Maintenance</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="form-group">
+                            <label for="description">Description</label>
+                            <input type="text" id="description" name="description" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="start_date">Start Date</label>
+                            <input type="date" id="start_date" name="start_date" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="start_time">Start Time</label>
+                            <input type="time" id="start_time" name="start_time" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="end_date">End Date</label>
+                            <input type="date" id="end_date" name="end_date" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="end_time">End Time</label>
+                            <input type="time" id="end_time" name="end_time" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="service_id">Service</label>
+                            <select id="service_id" name="service_id" class="form-control" required>
+                                <option value="">-- Please select service --</option>
+                                <?php foreach($sensors as $sensor): ?>
+                                    <option value="<?php echo $sensor['id']; ?>"><?php echo htmlspecialchars($sensor['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <button type="submit" name="add_maintenance" class="btn btn-primary">Schedule</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Incident Modal -->
+    <div class="modal fade" id="addIncidentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Report Incident</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="form-group">
+                            <label for="incident_description">Description</label>
+                            <input type="text" id="incident_description" name="incident_description" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="incident_date">Date</label>
+                            <input type="date" id="incident_date" name="incident_date" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="incident_time">Time</label>
+                            <input type="time" id="incident_time" name="incident_time" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="service_id">Service</label>
+                            <select id="service_id" name="service_id" class="form-control" required>
+                                <option value="">-- Please select service --</option>
+                                <?php foreach($sensors as $sensor): ?>
+                                    <option value="<?php echo $sensor['id']; ?>"><?php echo htmlspecialchars($sensor['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <button type="submit" name="add_incident" class="btn btn-primary">Report</button>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    
+    <script>
+        // Navigation scroll functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle smooth scrolling for navigation links
+            const navLinks = document.querySelectorAll('.nav-pills .nav-link');
+            
+            // Set the first link as active initially
+            if (navLinks.length > 0) {
+                navLinks[0].classList.add('active');
+            }
+            
+            navLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    // Prevent default anchor behavior
+                    e.preventDefault();
+                    
+                    // Remove active class from all links
+                    navLinks.forEach(l => l.classList.remove('active'));
+                    
+                    // Add active class to clicked link
+                    this.classList.add('active');
+                    
+                    // Get the target section
+                    const targetId = this.getAttribute('href');
+                    const targetSection = document.querySelector(targetId);
+                    
+                    if (targetSection) {
+                        // Scroll to the section with smooth behavior
+                        window.scrollTo({
+                            top: targetSection.offsetTop - 70, // Offset for navbar height
+                            behavior: 'smooth'
+                        });
+                        
+                        // Update URL hash without triggering scroll
+                        history.pushState(null, null, targetId);
+                    }
+                });
+            });
+            
+            // Check for hash in URL on page load
+            if (window.location.hash) {
+                const hash = window.location.hash;
+                const targetSection = document.querySelector(hash);
+                
+                if (targetSection) {
+                    // Activate corresponding nav link
+                    const correspondingLink = document.querySelector(`.nav-link[href="${hash}"]`);
+                    if (correspondingLink) {
+                        navLinks.forEach(l => l.classList.remove('active'));
+                        correspondingLink.classList.add('active');
+                        
+                        // Scroll to section after a small delay to ensure page is fully loaded
+                        setTimeout(() => {
+                            window.scrollTo({
+                                top: targetSection.offsetTop - 70,
+                                behavior: 'smooth'
+                            });
+                        }, 100);
+                    }
+                }
+            }
+            
+            // Update active nav item on scroll
+            window.addEventListener('scroll', function() {
+                let current = '';
+                const sections = document.querySelectorAll('div[id]');
+                
+                sections.forEach(section => {
+                    const sectionTop = section.offsetTop;
+                    
+                    if (window.pageYOffset >= sectionTop - 100) {
+                        current = section.getAttribute('id');
+                    }
+                });
+                
+                navLinks.forEach(link => {
+                    link.classList.remove('active');
+                    if (link.getAttribute('href') === '#' + current) {
+                        link.classList.add('active');
+                    }
+                });
+            });
+        });
+    </script>
 </body>
 </html>
