@@ -8,6 +8,24 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Stellt sicher, dass ein CSRF-Token existiert
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Funktion zum Überprüfen des CSRF-Tokens
+function check_csrf_token() {
+    if (!isset($_POST['csrf_token']) || !isset($_SESSION['csrf_token'])) {
+        return false;
+    }
+    
+    if ($_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        return false;
+    }
+    
+    return true;
+}
+
 // ID des zu bearbeitenden Incidents
 $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
@@ -40,6 +58,17 @@ try {
     $stmt = $pdo->prepare("SELECT id, name FROM config WHERE user_id = ?");
     $stmt->execute([$_SESSION['user_id']]);
     $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Hole alle Updates für diesen Incident
+    $stmtUpdates = $pdo->prepare("
+        SELECT iu.*, u.name as username 
+        FROM incident_updates iu
+        JOIN users u ON iu.created_by = u.id
+        WHERE iu.incident_id = ?
+        ORDER BY iu.update_time DESC
+    ");
+    $stmtUpdates->execute([$incident['id']]);
+    $updates = $stmtUpdates->fetchAll(PDO::FETCH_ASSOC);
 
     // Formular wurde abgesendet
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -112,6 +141,56 @@ try {
             exit;
         } else {
             $error = "All fields are required.";
+        }
+    }
+
+    // Verarbeite das Hinzufügen eines neuen Updates
+    if (isset($_POST['add_update']) && check_csrf_token()) {
+        // Validiere und säubere die Eingaben
+        $update_message = clean_input($_POST['update_message'] ?? '');
+        $update_status = clean_input($_POST['update_status'] ?? '');
+        
+        // Debug-Ausgabe
+        error_log("Status Value: " . $update_status);
+        
+        if ($update_message && $update_status && isset($incident['id'])) {
+            // Füge das Update hinzu
+            try {
+                // Füge das Update hinzu
+                $stmtAddUpdate = $pdo->prepare("
+                    INSERT INTO incident_updates 
+                    (incident_id, message, status, created_by) 
+                    VALUES (?, ?, ?, ?)
+                ");
+                
+                if ($stmtAddUpdate->execute([$incident['id'], $update_message, $update_status, $_SESSION['user_id']])) {
+                    // Update hinzugefügt - aktualisiere auch den Hauptstatus des Incidents
+                    $pdo->prepare("
+                        UPDATE incidents 
+                        SET status = ?, 
+                            updated_at = NOW(),
+                            resolved_at = CASE WHEN ? = 'resolved' THEN NOW() ELSE resolved_at END
+                        WHERE id = ?
+                    ")->execute([$update_status, $update_status, $incident['id']]);
+                    
+                    $message = "Update erfolgreich hinzugefügt.";
+                    
+                    // Hole die aktualisierten Updates
+                    $stmtUpdates->execute([$incident['id']]);
+                    $updates = $stmtUpdates->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    // Lade den aktuellen Incident neu
+                    $stmt->execute([$id]);
+                    $incident = $stmt->fetch(PDO::FETCH_ASSOC);
+                } else {
+                    $error = "Fehler beim Hinzufügen des Updates.";
+                }
+            } catch (PDOException $e) {
+                $error = "Datenbankfehler: " . $e->getMessage();
+                error_log("Database Error in edit_incident.php: " . $e->getMessage());
+            }
+        } else {
+            $error = "Bitte alle erforderlichen Felder ausfüllen.";
         }
     }
 
@@ -211,6 +290,79 @@ $time = $dateTime[1];
                 <button type="submit" class="btn btn-primary">Update Incident</button>
             </div>
         </form>
+
+        <!-- Hier die Anzeige für Updates im Formular einfügen -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="m-0">Incident Updates</h5>
+            </div>
+            <div class="card-body">
+                <?php if (isset($updates) && count($updates) > 0): ?>
+                    <div class="timeline mb-4">
+                        <?php foreach ($updates as $update): ?>
+                            <div class="timeline-item">
+                                <div class="timeline-item-marker">
+                                    <div class="timeline-item-marker-text"><?php echo date('d.m.y H:i', strtotime($update['update_time'])); ?></div>
+                                    <div class="timeline-item-marker-indicator bg-<?php 
+                                        echo match($update['status']) {
+                                            'resolved' => 'success',
+                                            'in progress' => 'primary',
+                                            'investigating' => 'warning',
+                                            'identified' => 'info',
+                                            'monitoring' => 'secondary',
+                                            default => 'danger'
+                                        };
+                                    ?>"></div>
+                                </div>
+                                <div class="timeline-item-content">
+                                    <div class="fw-bold mb-2">
+                                        Status: <span class="badge bg-<?php 
+                                        echo match($update['status']) {
+                                            'resolved' => 'success',
+                                            'in progress' => 'primary',
+                                            'investigating' => 'warning',
+                                            'identified' => 'info',
+                                            'monitoring' => 'secondary',
+                                            default => 'danger'
+                                        };
+                                        ?>"><?php echo htmlspecialchars($update['status']); ?></span>
+                                        <span class="ms-2 text-muted small">von <?php echo htmlspecialchars($update['username']); ?></span>
+                                    </div>
+                                    <p class="mb-0"><?php echo nl2br(htmlspecialchars($update['message'])); ?></p>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="text-muted">Keine Updates vorhanden.</p>
+                <?php endif; ?>
+                
+                <hr class="my-4">
+                
+                <h6>Neues Update hinzufügen</h6>
+                <form method="post" action="">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    
+                    <div class="mb-3">
+                        <label for="update_status" class="form-label">Status</label>
+                        <select name="update_status" id="update_status" class="form-select" required>
+                            <option value="investigating">Untersuchung läuft</option>
+                            <option value="identified">Ursache identifiziert</option>
+                            <option value="in progress">Behebung läuft</option>
+                            <option value="monitoring">Überwachung</option>
+                            <option value="resolved">Behoben</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="update_message" class="form-label">Update-Nachricht</label>
+                        <textarea name="update_message" id="update_message" class="form-control" rows="3" required></textarea>
+                    </div>
+                    
+                    <button type="submit" name="add_update" class="btn btn-primary">Update hinzufügen</button>
+                </form>
+            </div>
+        </div>
     </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>

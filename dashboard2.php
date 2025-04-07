@@ -92,12 +92,22 @@ try {
 
     // Get user's sensors
     $stmt = $pdo->prepare("
-        SELECT c.*, 
-               (SELECT status FROM uptime_checks WHERE service_url = c.url ORDER BY check_time DESC LIMIT 1) as last_status,
-               (SELECT check_time FROM uptime_checks WHERE service_url = c.url ORDER BY check_time DESC LIMIT 1) as last_check
-        FROM config c
-        WHERE c.user_id = ?
-        ORDER BY c.name
+        SELECT 
+            c.id, 
+            c.name, 
+            c.url, 
+            c.sensor_type, 
+            c.ssl_expiry_date,
+            (SELECT status FROM uptime_checks WHERE service_url = c.url ORDER BY check_time DESC LIMIT 1) as last_status,
+            (SELECT check_time FROM uptime_checks WHERE service_url = c.url ORDER BY check_time DESC LIMIT 1) as last_check,
+            (SELECT response_time FROM uptime_checks WHERE service_url = c.url ORDER BY check_time DESC LIMIT 1) as last_response_time,
+            (SELECT AVG(response_time) FROM uptime_checks WHERE service_url = c.url AND check_time >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) as avg_response_time
+        FROM 
+            config c
+        WHERE 
+            c.user_id = ?
+        ORDER BY 
+            c.name ASC
     ");
     $stmt->execute([$_SESSION['user_id']]);
     $sensors = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -141,9 +151,9 @@ try {
     if ($name && $url && $sensor_type) {
         $stmt = $pdo->prepare("INSERT INTO config (name, url, sensor_type, sensor_config, user_id) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([$name, $url, $sensor_type, $sensor_config, $_SESSION['user_id']]);
-        $message = "Service erfolgreich hinzugefügt!";
+                    $message = "Service successfully added!";
     } else {
-        $message = "Bitte alle Felder ausfüllen.";
+                    $message = "Please fill in all fields.";
     }
 }
 
@@ -162,7 +172,7 @@ try {
                     $stmt = $pdo->prepare("INSERT INTO maintenance_history (description, start_date, end_date, status, service_id, user_id) VALUES (?, ?, ?, ?, ?, ?)");
                     $stmt->execute([$description, $start_datetime, $end_datetime, 'scheduled', $service_id, $_SESSION['user_id']]);
                     $maintenance_id = $pdo->lastInsertId();
-                    $message = "Wartungseintrag erfolgreich hinzugefügt!";
+                    $message = "Maintenance entry successfully added!";
                     
                     // Sende E-Mail-Benachrichtigungen
                     if ($maintenance_id) {
@@ -185,70 +195,77 @@ try {
                                 $emailNotifier->sendMaintenanceNotification($maintenance_id, $status_page_id);
                             }
                             
-                            $message .= " E-Mail-Benachrichtigungen wurden gesendet.";
+                            $message .= " Email notifications have been sent.";
                         }
                     }
-                } else {
-                    $message = "Bitte alle Felder ausfüllen.";
-                }
-            }
+    } else {
+                    $message = "Please fill in all fields.";
+    }
+}
 
             if (isset($_POST['add_incident'])) {
     $incidentDescription = clean_input($_POST['incident_description'] ?? '');
     $incidentDate = clean_input($_POST['incident_date'] ?? '');
     $incidentTime = clean_input($_POST['incident_time'] ?? '');
     $service_id = clean_input($_POST['service_id'] ?? '');
+    $impact = clean_input($_POST['impact'] ?? 'minor');
+    
+    // Sicherstellen, dass Impact ein gültiger Wert ist
+    $validImpacts = ['minor', 'major', 'critical'];
+    if (!in_array($impact, $validImpacts)) {
+        $impact = 'minor'; // Standardwert als Fallback
+    }
     
     if ($incidentDescription && $incidentDate && $incidentTime && $service_id) {
         $datetime = $incidentDate . ' ' . $incidentTime;
-        
-        // Finde die Standard-Status-Page des Benutzers oder die erste verfügbare
-        $stmt = $pdo->prepare("SELECT id FROM status_pages WHERE user_id = ? ORDER BY id ASC LIMIT 1");
-        $stmt->execute([$_SESSION['user_id']]);
-        $status_page = $stmt->fetch(PDO::FETCH_ASSOC);
-        $status_page_id = $status_page ? $status_page['id'] : 0;
-        
-        if ($status_page_id) {
-            // Verwende die Beschreibung auch als Titel
-            $title = $incidentDescription;
-            
-            // Füge den Incident mit status_page_id und title hinzu
-            $stmt = $pdo->prepare("INSERT INTO incidents (title, description, date, status, service_id, user_id, status_page_id, impact) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$title, $incidentDescription, $datetime, 'reported', $service_id, $_SESSION['user_id'], $status_page_id, 'minor']);
-            $incident_id = $pdo->lastInsertId();
-            $message = "Vorfall erfolgreich hinzugefügt!";
-            
-            // Sende E-Mail-Benachrichtigungen
-            if ($incident_id) {
-                // Finde alle Status Pages, die diesen Service enthalten
-                $stmt = $pdo->prepare("
-                    SELECT id 
-                    FROM status_pages 
-                    WHERE JSON_CONTAINS(sensor_ids, ?) OR service_id = ?
-                ");
-                $stmt->execute([json_encode($service_id), $service_id]);
-                $status_pages = $stmt->fetchAll(PDO::FETCH_COLUMN);
-                
-                if (!empty($status_pages)) {
-                    // Lade die E-Mail-Benachrichtigungsklasse
-                    require_once 'email_notifications.php';
-                    $emailNotifier = new EmailNotifications($pdo);
                     
-                    // Sende Benachrichtigungen für jede betroffene Status Page
-                    foreach ($status_pages as $status_page_id) {
-                        $emailNotifier->sendIncidentNotification($incident_id, $status_page_id);
+                    // Finde die Standard-Status-Page des Benutzers oder die erste verfügbare
+                    $stmt = $pdo->prepare("SELECT id FROM status_pages WHERE user_id = ? ORDER BY id ASC LIMIT 1");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    $status_page = $stmt->fetch(PDO::FETCH_ASSOC);
+                    $status_page_id = $status_page ? $status_page['id'] : 0;
+                    
+                    if ($status_page_id) {
+                        // Verwende die Beschreibung auch als Titel
+                        $title = $incidentDescription;
+                        
+                        // Füge den Incident mit status_page_id und title hinzu
+                        $stmt = $pdo->prepare("INSERT INTO incidents (title, description, date, status, service_id, user_id, status_page_id, impact) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                        $stmt->execute([$title, $incidentDescription, $datetime, 'reported', $service_id, $_SESSION['user_id'], $status_page_id, $impact]);
+                        $incident_id = $pdo->lastInsertId();
+                        $message = "Incident successfully added!";
+                        
+                        // Sende E-Mail-Benachrichtigungen
+                        if ($incident_id) {
+                            // Finde alle Status Pages, die diesen Service enthalten
+                            $stmt = $pdo->prepare("
+                                SELECT id 
+                                FROM status_pages 
+                                WHERE JSON_CONTAINS(sensor_ids, ?) OR service_id = ?
+                            ");
+                            $stmt->execute([json_encode($service_id), $service_id]);
+                            $status_pages = $stmt->fetchAll(PDO::FETCH_COLUMN);
+                            
+                            if (!empty($status_pages)) {
+                                // Lade die E-Mail-Benachrichtigungsklasse
+                                require_once 'email_notifications.php';
+                                $emailNotifier = new EmailNotifications($pdo);
+                                
+                                // Sende Benachrichtigungen für jede betroffene Status Page
+                                foreach ($status_pages as $status_page_id) {
+                                    $emailNotifier->sendIncidentNotification($incident_id, $status_page_id);
+                                }
+                                
+                                $message .= " Email notifications have been sent.";
+                            }
+                        }
+    } else {
+                        $error = "No status page found. Please create a status page first.";
                     }
-                    
-                    $message .= " E-Mail-Benachrichtigungen wurden gesendet.";
+                } else {
+                    $message = "Please fill in all fields.";
                 }
             }
-        } else {
-            $error = "Keine Status Page gefunden. Bitte erstellen Sie zuerst eine Status Page.";
-        }
-    } else {
-        $message = "Bitte alle Felder ausfüllen.";
-    }
-}
 
             if (isset($_POST['add_statuspage'])) {
                 $page_title = clean_input($_POST['page_title'] ?? '');
@@ -260,9 +277,9 @@ try {
                     $uuid = uniqid('sp_', true);
                     $stmt = $pdo->prepare("INSERT INTO status_pages (user_id, sensor_ids, page_title, custom_css, uuid) VALUES (?, ?, ?, ?, ?)");
                     $stmt->execute([$_SESSION['user_id'], $sensor_ids_json, $page_title, $custom_css, $uuid]);
-                    $message = "Statuspage erfolgreich erstellt!";
+                    $message = "Status page successfully created!";
     } else {
-                    $message = "Bitte einen Titel für die Statuspage angeben.";
+                    $message = "Please provide a title for the status page.";
                 }
             }
 
@@ -283,7 +300,7 @@ try {
                     $stmt = $pdo->prepare("DELETE FROM config WHERE id = ? AND user_id = ?");
                     $stmt->execute([$service_id, $_SESSION['user_id']]);
                     
-                    $message = "Service deleted successfully.";
+                    $message = "Service successfully deleted!";
                 }
             }
 
@@ -294,9 +311,9 @@ try {
                 if ($domain && $status_page_id) {
                     $stmt = $pdo->prepare("INSERT INTO custom_domains (domain, status_page_id, user_id) VALUES (?, ?, ?)");
                     $stmt->execute([$domain, $status_page_id, $_SESSION['user_id']]);
-                    $message = "Domain erfolgreich hinzugefügt!";
-                } else {
-                    $message = "Bitte alle Felder ausfüllen.";
+                    $message = "Domain successfully added!";
+    } else {
+                    $message = "Please fill in all fields.";
                 }
             }
         }
@@ -316,7 +333,7 @@ try {
             // Wenn der API-Key gültig ist, setzen wir user_id für die Aktionen
             if ($api_user && isset($api_user['user_id'])) {
                 $user_id_for_action = $api_user['user_id'];
-    } else {
+            } else {
                 die('Invalid API Key');
             }
         } else {
@@ -336,28 +353,28 @@ try {
             if (isset($_GET['delete_service']) && isset($_GET['confirm']) && $_GET['confirm'] === 'true') {
     $id = $_GET['delete_service'] ?? '';
     if ($id) {
-        // Get the service name before deleting
-        $stmt = $pdo->prepare("SELECT name FROM config WHERE id = ? AND user_id = ?");
-        $stmt->execute([$id, $user_id_for_action]);
-        $service = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if ($service) {
-            // Delete related uptime_checks entries
-            $stmt = $pdo->prepare("DELETE FROM uptime_checks WHERE service_name = ? AND user_id = ?");
-            $stmt->execute([$service['name'], $user_id_for_action]);
-            
-            // Delete the service from config
+                    // Get the service name before deleting
+                    $stmt = $pdo->prepare("SELECT name FROM config WHERE id = ? AND user_id = ?");
+                    $stmt->execute([$id, $user_id_for_action]);
+                    $service = $stmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    if ($service) {
+                        // Delete related uptime_checks entries
+                        $stmt = $pdo->prepare("DELETE FROM uptime_checks WHERE service_name = ? AND user_id = ?");
+                        $stmt->execute([$service['name'], $user_id_for_action]);
+                        
+                        // Delete the service from config
         $stmt = $pdo->prepare("DELETE FROM config WHERE id = ? AND user_id = ?");
-            $stmt->execute([$id, $user_id_for_action]);
-            
-            if ($stmt->rowCount() > 0) {
-        $message = "Service erfolgreich gelöscht!";
-            } else {
-                $error = "Service nicht gefunden oder keine Berechtigung!";
+                        $stmt->execute([$id, $user_id_for_action]);
+                        
+                        if ($stmt->rowCount() > 0) {
+                            $message = "Service successfully deleted!";
+                        } else {
+                            $error = "Service not found or insufficient permissions!";
+                        }
+                    }
+                }
             }
-        }
-    }
-}
 
             if (isset($_GET['delete_maintenance']) && isset($_GET['confirm']) && $_GET['confirm'] === 'true') {
     $id = $_GET['delete_maintenance'] ?? '';
@@ -365,12 +382,12 @@ try {
         $stmt = $pdo->prepare("DELETE FROM maintenance_history WHERE id = ? AND user_id = ?");
                     $stmt->execute([$id, $user_id_for_action]);
                     if ($stmt->rowCount() > 0) {
-        $message = "Wartungseintrag erfolgreich gelöscht!";
+                        $message = "Maintenance entry successfully deleted!";
                     } else {
-                        $error = "Wartungseintrag nicht gefunden oder keine Berechtigung!";
+                        $error = "Maintenance entry not found or insufficient permissions!";
                     }
-    }
-}
+                }
+            }
 
             if (isset($_GET['delete_incident']) && isset($_GET['confirm']) && $_GET['confirm'] === 'true') {
     $id = $_GET['delete_incident'] ?? '';
@@ -378,9 +395,9 @@ try {
         $stmt = $pdo->prepare("DELETE FROM incidents WHERE id = ? AND user_id = ?");
                     $stmt->execute([$id, $user_id_for_action]);
                     if ($stmt->rowCount() > 0) {
-        $message = "Vorfall erfolgreich gelöscht!";
-    } else {
-                        $error = "Vorfall nicht gefunden oder keine Berechtigung!";
+                        $message = "Incident successfully deleted!";
+                    } else {
+                        $error = "Incident not found or insufficient permissions!";
                     }
                 }
             }
@@ -391,17 +408,17 @@ try {
                     // Prüfen, ob die Status Page dem Benutzer gehört
                     $stmt = $pdo->prepare("SELECT id FROM status_pages WHERE id = ? AND user_id = ?");
                     $stmt->execute([$id, $user_id_for_action]);
-        if ($stmt->rowCount() > 0) {
+                    if ($stmt->rowCount() > 0) {
                         // Lösche zuerst alle Email-Abonnenten dieser Status Page
                         $stmt = $pdo->prepare("DELETE FROM email_subscribers WHERE status_page_id = ?");
                         $stmt->execute([$id]);
                         
                         // Lösche die Status Page
-        $stmt = $pdo->prepare("DELETE FROM status_pages WHERE id = ? AND user_id = ?");
+                        $stmt = $pdo->prepare("DELETE FROM status_pages WHERE id = ? AND user_id = ?");
                         $stmt->execute([$id, $user_id_for_action]);
-                        $message = "Status Page erfolgreich gelöscht!";
-        } else {
-                        $error = "Status Page nicht gefunden oder keine Berechtigung!";
+                        $message = "Status Page successfully deleted!";
+    } else {
+                        $error = "Status Page not found or insufficient permissions!";
                     }
                 }
             }
@@ -411,10 +428,10 @@ try {
                 if ($id) {
                     $stmt = $pdo->prepare("DELETE FROM custom_domains WHERE id = ? AND user_id = ?");
                     $stmt->execute([$id, $user_id_for_action]);
-                    if ($stmt->rowCount() > 0) {
-                        $message = "Domain erfolgreich gelöscht!";
-                    } else {
-                        $error = "Domain nicht gefunden oder keine Berechtigung!";
+        if ($stmt->rowCount() > 0) {
+                        $message = "Domain successfully deleted!";
+        } else {
+                        $error = "Domain not found or insufficient permissions!";
                     }
                 }
             }
@@ -422,48 +439,96 @@ try {
             if (isset($_GET['verify_domain'])) {
                 $domain_id = (int)$_GET['verify_domain'];
                 
-                // Prüfe, ob die Domain dem Benutzer gehört
-                $stmt = $pdo->prepare("
-                    SELECT cd.* FROM custom_domains cd
-                    WHERE cd.id = ? AND cd.user_id = ?
-                ");
-                $stmt->execute([$domain_id, $_SESSION['user_id']]);
-                $domain = $stmt->fetch(PDO::FETCH_ASSOC);
+                // Prüfe, ob die letzte Überprüfung weniger als 5 Minuten her ist
+                $last_check = isset($_SESSION['last_domain_check_' . $domain_id]) ? $_SESSION['last_domain_check_' . $domain_id] : 0;
+                $current_time = time();
                 
-                if ($domain) {
-                    // Führe die CNAME-Überprüfung durch
-                    $domain_name = $domain['domain'];
-                    $expected_target = $_SERVER['HTTP_HOST'];
+                if ($current_time - $last_check < 300 && $last_check > 0) {
+                    $remaining = 300 - ($current_time - $last_check);
+                    $error = "Please wait at least 5 minutes between verification attempts. Remaining time: " . floor($remaining / 60) . " minutes and " . ($remaining % 60) . " seconds.";
+    } else {
+                    // Aktualisiere den Zeitstempel der letzten Überprüfung
+                    $_SESSION['last_domain_check_' . $domain_id] = $current_time;
                     
-                    // DNS-Lookup durchführen
-                    $dns_records = dns_get_record($domain_name, DNS_CNAME);
-                    $verified = false;
+                    // Prüfe, ob die Domain dem Benutzer gehört
+                    $stmt = $pdo->prepare("
+                        SELECT cd.* FROM custom_domains cd
+                        WHERE cd.id = ? AND cd.user_id = ?
+                    ");
+                    $stmt->execute([$domain_id, $_SESSION['user_id']]);
+                    $domain = $stmt->fetch(PDO::FETCH_ASSOC);
                     
-                    foreach ($dns_records as $record) {
-                        if (isset($record['target']) && ($record['target'] === $expected_target || $record['target'] === $expected_target . '.')) {
-                            $verified = true;
-                            break;
-                        }
-                    }
-                    
-                    if ($verified) {
-                        // Domain als verifiziert markieren
-                        $stmt = $pdo->prepare("UPDATE custom_domains SET verified = 1 WHERE id = ?");
-                        $stmt->execute([$domain_id]);
-                        $message = "Domain erfolgreich verifiziert!";
-
-                        // Certbot-Script im Hintergrund ausführen
-                        $domain_name = escapeshellarg($domain_name);
-                        $email = escapeshellarg($_SESSION['user_email']);
-                        $cmd = "/var/www/html/scripts/certbot_request.sh $domain_name $email > /dev/null 2>&1 &";
-                        exec($cmd);
+                    if ($domain) {
+                        // Führe die CNAME-Überprüfung durch
+                        $domain_name = $domain['domain'];
+                        $expected_target = $_SERVER['HTTP_HOST'];
                         
-                        $message .= " Ein SSL-Zertifikat wird im Hintergrund angefordert. Dies kann einige Minuten dauern.";
+                        // DNS-Lookup durchführen
+                        $dns_records = dns_get_record($domain_name, DNS_CNAME);
+                        $verified = false;
+                        
+                        foreach ($dns_records as $record) {
+                            if (isset($record['target']) && (
+                                $record['target'] === $expected_target || 
+                                $record['target'] === $expected_target . '.'
+                            )) {
+                                $verified = true;
+                                break;
+                            }
+                        }
+                        
+                        if ($verified) {
+                            // Domain als verifiziert markieren
+                            $stmt = $pdo->prepare("UPDATE custom_domains SET verified = 1 WHERE id = ?");
+                            $stmt->execute([$domain_id]);
+                            $message = "Domain successfully verified!";
+
+                            // Check if SSL certificate is already available in the certbot directory
+                            $cert_path = "/var/www/html/certbot/config/live/{$domain_name}/fullchain.pem";
+                            $key_path = "/var/www/html/certbot/config/live/{$domain_name}/privkey.pem";
+                            
+                            if (file_exists($cert_path) && file_exists($key_path)) {
+                                // If the certificate already exists, mark SSL as active
+                                $stmt = $pdo->prepare("UPDATE custom_domains SET ssl_status = 'active' WHERE id = ?");
+                                $stmt->execute([$domain_id]);
+                                $message .= " A valid SSL certificate was found and activated.";
+        } else {
+                                // Request new certificate
+                                // Certbot-Script im Hintergrund ausführen
+                                $domain_name = escapeshellarg($domain_name);
+                                $email = escapeshellarg($_SESSION['user_email']);
+                                $cmd = "/var/www/html/scripts/certbot_request.sh $domain_name $email > /dev/null 2>&1 &";
+                                exec($cmd);
+                                
+                                // Update SSL status to pending
+                                $stmt = $pdo->prepare("UPDATE custom_domains SET ssl_status = 'pending' WHERE id = ?");
+                                $stmt->execute([$domain_id]);
+                                
+                                $message .= " An SSL certificate is being requested in the background. This may take a few minutes.";
+                            }
+                        } else {
+                            // Füge Details zu den gefundenen CNAME-Einträgen hinzu
+                            $found_records = '';
+                            if (empty($dns_records)) {
+                                $found_records = "No CNAME records found.";
+                            } else {
+                                $found_records = "Found CNAME records: ";
+                                foreach ($dns_records as $index => $record) {
+                                    if (isset($record['target'])) {
+                                        $found_records .= $record['target'];
+                                        if ($index < count($dns_records) - 1) {
+                                            $found_records .= ", ";
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            $error = "The domain could not be verified. Please ensure that the CNAME record is correctly configured and points to {$expected_target}. {$found_records}<br><br>
+                            <strong>Note:</strong> DNS changes can take up to 24 hours to fully propagate. Please try again later.";
+                        }
                     } else {
-                        $error = "Die Domain konnte nicht verifiziert werden. Bitte stellen Sie sicher, dass der CNAME-Eintrag korrekt eingerichtet ist und auf {$expected_target} zeigt.";
+                        $error = "Domain not found or insufficient permissions!";
                     }
-                } else {
-                    $error = "Domain nicht gefunden oder keine Berechtigung!";
                 }
             }
 
@@ -479,19 +544,52 @@ try {
                 $domain = $stmt->fetch(PDO::FETCH_ASSOC);
                 
                 if ($domain) {
-                    // SSL-Status auf "pending" setzen
-                    $stmt = $pdo->prepare("UPDATE custom_domains SET ssl_status = 'pending' WHERE id = ?");
-                    $stmt->execute([$domain_id]);
+                    // Check if SSL certificate is already available
+                    $domain_name = $domain['domain'];
+                    $cert_path = "/var/www/html/certbot/config/live/{$domain_name}/fullchain.pem";
+                    $key_path = "/var/www/html/certbot/config/live/{$domain_name}/privkey.pem";
                     
-                    // Certbot-Script im Hintergrund ausführen
-                    $domain_name = escapeshellarg($domain['domain']);
-                    $email = escapeshellarg($_SESSION['user_email']);
-                    $cmd = "/var/www/html/scripts/certbot_request.sh $domain_name $email > /dev/null 2>&1 &";
-                    exec($cmd);
-                    
-                    $message = "SSL-Zertifikatsanforderung für die Domain {$domain['domain']} wurde gestartet. Dies kann einige Minuten dauern.";
+                    if (file_exists($cert_path) && file_exists($key_path)) {
+                        // If the certificate already exists, just mark it as active
+                        $stmt = $pdo->prepare("UPDATE custom_domains SET ssl_status = 'active' WHERE id = ?");
+                        $stmt->execute([$domain_id]);
+                        $message = "SSL certificate for domain {$domain['domain']} is already available and has been activated.";
+                    } else {
+                        // SSL-Status auf "pending" setzen
+                        $stmt = $pdo->prepare("UPDATE custom_domains SET ssl_status = 'pending' WHERE id = ?");
+                        $stmt->execute([$domain_id]);
+                        
+                        // Certbot-Script im Hintergrund ausführen
+                        $domain_name = escapeshellarg($domain['domain']);
+                        $email = escapeshellarg($_SESSION['user_email']);
+                        $cmd = "/var/www/html/scripts/certbot_request.sh $domain_name $email > /dev/null 2>&1 &";
+                        exec($cmd);
+                        
+                        $message = "SSL certificate request for domain {$domain['domain']} has been initiated. This may take a few minutes.";
+                        
+                        // Create a JavaScript function to check the SSL status periodically
+                        echo '<script>
+                            // Check SSL status every 10 seconds
+                            function checkSSLStatus() {
+                                fetch("check_ssl_status.php?domain_id=' . $domain_id . '")
+                                    .then(response => response.json())
+                                    .then(data => {
+                                        if (data.status === "active") {
+                                            // Refresh the page to show the updated status
+                                            window.location.reload();
+                                        } else if (data.status === "pending") {
+                                            // Check again in 10 seconds
+                                            setTimeout(checkSSLStatus, 10000);
+                                        }
+                                    });
+                            }
+                            
+                            // Start checking after 5 seconds
+                            setTimeout(checkSSLStatus, 5000);
+                        </script>';
+                    }
                 } else {
-                    $error = "Domain nicht gefunden, nicht verifiziert oder keine Berechtigung!";
+                    $error = "Domain not found, not verified, or insufficient permissions!";
                 }
             }
         }
@@ -576,6 +674,47 @@ try {
             opacity: 0.6;
             cursor: not-allowed;
         }
+        .response-time-sparkline {
+            height: 30px;
+            width: 100%;
+            margin-top: 5px;
+        }
+        
+        .response-time-sparkline-container {
+            display: flex;
+            align-items: center;
+            margin-top: 8px;
+            width: 100%;
+        }
+        
+        .response-time-sparkline-container canvas {
+            flex: 1;
+            height: 30px;
+            min-width: 80px;
+        }
+        
+        .show-chart-btn {
+            padding: 3px 8px;
+            font-size: 12px;
+            width: auto;
+            max-width: none;
+        }
+        
+        .show-chart-btn:hover {
+            background-color: #0d6efd;
+            color: white;
+        }
+        
+        .expand-chart-btn {
+            padding: 0;
+            margin-left: 5px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+        
+        .expand-chart-btn:hover {
+            color: #0d6efd;
+        }
     </style>
 </head>
 <body>
@@ -620,14 +759,14 @@ try {
                 <div class="card">
                     <div class="card-header">
                         <h5 class="card-title mb-0">Current Plan</h5>
-                    </div>
+            </div>
                     <div class="card-body">
                         <h3><?php echo htmlspecialchars($userTier['name']); ?></h3>
                         <?php if (isset($userTier['end_date'])): ?>
                             <p class="text-muted">Valid until: <?php echo date('Y-m-d', strtotime($userTier['end_date'])); ?></p>
                         <?php endif; ?>
-                    </div>
-                </div>
+            </div>
+            </div>
             </div>
             <div class="col-md-8">
                 <div class="card">
@@ -747,47 +886,101 @@ try {
         <!-- Sensors Section -->
         <div id="sensors_tab" class="mb-5">
             <h2 class="border-bottom pb-2 mb-4">Sensors</h2>
-            <div class="card shadow-sm mb-4">
+            <div class="card mb-4">
                 <div class="card-header">
-                    <h5 class="m-0">Sensors</h5>
+                    <h6 class="m-0 font-weight-bold text-primary">Sensors</h6>
                 </div>
                 <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>URL</th>
-                                    <th>Sensor Type</th>
-                                    <th>Status</th>
-                                    <th>Last Check</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($sensors as $sensor): ?>
-                                    <tr>
-                                        <td><?php echo htmlspecialchars($sensor['name']); ?></td>
-                                        <td><?php echo htmlspecialchars($sensor['url']); ?></td>
-                                        <td><?php echo htmlspecialchars($sensor['sensor_type']); ?></td>
-                                        <td>
-                                            <span class="badge bg-<?php echo $sensor['last_status'] ? 'success' : 'danger'; ?>">
-                                                <?php echo $sensor['last_status'] ? 'Up' : 'Down'; ?>
-                                            </span>
-                                        </td>
-                                        <td><?php echo $sensor['last_check'] ? date('Y-m-d H:i:s', strtotime($sensor['last_check'])) : 'Never'; ?></td>
-                                        <td>
-                                            <a href="edit_sensor.php?id=<?php echo $sensor['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
-                                            <a href="?delete_service=<?php echo $sensor['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                    <?php if (count($sensors) < $userTier['max_sensors']): ?>
+                    <button type="button" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#addServiceModal">
+                        <i class="fas fa-plus"></i> Add Sensor
+                    </button>
+                    <?php else: ?>
+                    <div class="alert alert-warning mb-3">
+                        You have reached your sensor limit (<?php echo $userTier['max_sensors']; ?>). Upgrade your plan to add more sensors.
                     </div>
+                    <?php endif; ?>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>URL</th>
+                                    <th>Sensor</th>
+                                    <th>Status</th>
+                                    <th>Reaktionszeit</th>
+                                    <th>SSL Ablauf</th>
+                    <th>Aktionen</th>
+                </tr>
+            </thead>
+            <tbody>
+                                <?php
+                                foreach ($sensors as $sensor) {
+                                    // Status-Klasse bestimmen
+                                    $statusClass = 'secondary';
+                                    if ($sensor['last_status'] === 'up') $statusClass = 'success';
+                                    elseif ($sensor['last_status'] === 'down') $statusClass = 'danger';
+                                    
+                                    // Reaktionszeit formatieren
+                                    $responseTime = $sensor['last_response_time'] ? round($sensor['last_response_time'] * 1000, 2) . ' ms' : 'N/A';
+                                    
+                                    // SSL-Ablaufdatum prüfen und formatieren
+                                    $sslWarning = '';
+                                    $sslClass = '';
+                                    $sslDisplay = 'N/A';
+                                    
+                                    if ($sensor['ssl_expiry_date']) {
+                                        $now = new DateTime();
+                                        $expiryDate = new DateTime($sensor['ssl_expiry_date']);
+                                        $sslDisplay = $expiryDate->format('d.m.Y');
+                                        
+                                        $diff = $now->diff($expiryDate);
+                                        $daysRemaining = $diff->days;
+                                        
+                                        if ($expiryDate < $now) {
+                                            $sslClass = 'text-danger';
+                                            $sslWarning = ' <i class="fas fa-exclamation-triangle" title="SSL-Zertifikat abgelaufen!"></i>';
+                                        } elseif ($daysRemaining <= 30) {
+                                            $sslClass = 'text-warning';
+                                            $sslWarning = ' <i class="fas fa-exclamation-circle" title="SSL-Zertifikat läuft in ' . $daysRemaining . ' Tagen ab!"></i>';
+                                        } else {
+                                            $sslClass = 'text-success';
+                                        }
+                                    }
+                                ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($sensor['name']); ?></td>
+                                    <td><a href="<?php echo htmlspecialchars($sensor['url']); ?>" target="_blank"><?php echo htmlspecialchars($sensor['url']); ?></a></td>
+                                    <td><?php echo htmlspecialchars($sensor['sensor_type']); ?></td>
+                                    <td><span class="badge bg-<?php echo $statusClass; ?>"><?php echo htmlspecialchars($sensor['last_status']); ?></span></td>
+                                    <td>
+                                        <?php echo $responseTime; ?>
+                                        <div class="d-flex gap-2 mt-1">
+
+                                            <button class="btn btn-sm btn-outline-primary" onclick="loadResponseTimeChart(<?php echo $sensor['id']; ?>, '<?php echo htmlspecialchars($sensor['name']); ?>')" title="Detaillierte Grafik anzeigen">
+                                                <i class="bi bi-arrows-fullscreen"></i> Detail-Popup
+                                            </button>
+                                        </div>
+                                        <div class="response-time-sparkline-container" id="chart-container-<?php echo $sensor['id']; ?>" style="display:none;">
+                                            <canvas class="response-time-sparkline" id="sparkline-<?php echo $sensor['id']; ?>"></canvas>
+                                        </div>
+                                    </td>
+                                    <td class="<?php echo $sslClass; ?>"><?php echo $sslDisplay . $sslWarning; ?></td>
+                                    <td>
+                                        <div class="btn-group">
+                                            <a href="edit_sensor.php?id=<?php echo $sensor['id']; ?>" class="btn btn-sm btn-primary"><i class="fas fa-edit"></i></a>
+                                            <button type="button" class="btn btn-sm btn-danger delete-sensor" data-sensor-id="<?php echo $sensor['id']; ?>"><i class="fas fa-trash"></i></button>
+                                        </div>
+                        </td>
+                    </tr>
+                                <?php } ?>
+            </tbody>
+        </table>
                 </div>
-            </div>
-        </div>
+                </div>
+                </div>
+                </div>
 
         <!-- Incidents Section -->
         <div id="incidents_tab" class="mb-5">
@@ -799,16 +992,16 @@ try {
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table">
-                            <thead>
-                                <tr>
+                <thead>
+                    <tr>
                                     <th>Date</th>
-                                    <th>Service</th>
+                        <th>Service</th>
                                     <th>Description</th>
-                                    <th>Status</th>
+                        <th>Status</th>
                                     <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                    </tr>
+                </thead>
+                <tbody>
                                 <?php foreach ($recentIncidents as $incident): ?>
                                 <tr>
                                     <td><?php echo date('Y-m-d H:i:s', strtotime($incident['date'])); ?></td>
@@ -825,15 +1018,15 @@ try {
                                     <td>
                                         <a href="edit_incident.php?id=<?php echo $incident['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
                                         <a href="?delete_incident=<?php echo $incident['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
+                </div>
+                </div>
+                </div>
 
         <!-- Maintenance Section -->
         <div id="maintenance_tab" class="mb-5">
@@ -845,16 +1038,16 @@ try {
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table">
-                            <thead>
-                                <tr>
+                <thead>
+                    <tr>
                                     <th>Date</th>
-                                    <th>Service</th>
+                        <th>Service</th>
                                     <th>Description</th>
-                                    <th>Status</th>
+                        <th>Status</th>
                                     <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                    </tr>
+                </thead>
+                <tbody>
                                 <?php foreach ($maintenanceHistory as $maintenance): ?>
                                     <tr>
                                         <td><?php echo date('Y-m-d H:i:s', strtotime($maintenance['date'])); ?></td>
@@ -871,14 +1064,14 @@ try {
                                         <td>
                                             <a href="edit_maintenance.php?id=<?php echo $maintenance['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
                                             <a href="?delete_maintenance=<?php echo $maintenance['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
+                            </td>
+                        </tr>
+                                        <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
                 </div>
-            </div>
+                </div>
         </div>
 
         <!-- Status Pages Section -->
@@ -891,34 +1084,34 @@ try {
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table">
-                            <thead>
-                                <tr>
+        <thead>
+            <tr>
                                     <th>Title</th>
                                     <th>Sensors</th>
                                     <th>Subscribers</th>
                                     <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($statusPages as $page): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($page['page_title']); ?></td>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($statusPages as $page): ?>
+            <tr>
+                <td><?php echo htmlspecialchars($page['page_title']); ?></td>
                                     <td><?php echo $page['sensor_count']; ?></td>
                                     <td><?php echo $page['subscriber_count']; ?></td>
                                     <td>
                                         <a href="status_page.php?status_page_uuid=<?php echo $page['uuid']; ?>" class="btn btn-sm btn-info">View</a>
                                         <a href="edit_status_page.php?id=<?php echo $page['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
                                         <a href="?delete_status_page=<?php echo $page['id']; ?>&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure? This will also delete all subscriptions.')">Delete</a>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
                     </div>
                 </div>
             </div>
         </div>
-
+        
         <!-- Custom Domains Section -->
         <div id="domains_tab" class="mb-5">
             <h2 class="border-bottom pb-2 mb-4">Custom Domains</h2>
@@ -932,16 +1125,16 @@ try {
                         <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                         <div class="row align-items-end">
                             <div class="col-md-4">
-                                <div class="form-group">
+                <div class="form-group">
                                     <label for="domain">Domain:</label>
                                     <input type="text" name="domain" id="domain" class="form-control" placeholder="e.g. status.mydomain.com" required>
-                                </div>
+                </div>
                             </div>
                             <div class="col-md-4">
-                                <div class="form-group">
+                <div class="form-group">
                                     <label for="domain_status_page_id">Status Page:</label>
                                     <select name="domain_status_page_id" id="domain_status_page_id" class="form-control" required>
-                                        <?php 
+                                <?php 
                                         // Status Pages des Benutzers abrufen
                                         $stmt = $pdo->prepare("SELECT id, page_title FROM status_pages WHERE user_id = ?");
                                         $stmt->execute([$_SESSION['user_id']]);
@@ -955,12 +1148,12 @@ try {
                                             }
                                         }
                                         ?>
-                                    </select>
-                                </div>
-                            </div>
+                    </select>
+                </div>
+                </div>
                             <div class="col-md-4">
                                 <button type="submit" name="add_domain" class="btn btn-success w-100">Add Domain</button>
-                            </div>
+        </div>
                         </div>
                     </form>
 
@@ -977,17 +1170,17 @@ try {
                     <h6 class="border-bottom pb-2 mb-4">Your Domains</h6>
                     <div class="table-responsive">
                         <table class="table table-hover">
-                            <thead>
-                                <tr>
+        <thead>
+            <tr>
                                     <th>Domain</th>
                                     <th>Status Page</th>
                                     <th>Domain Status</th>
                                     <th>SSL Status</th>
                                     <th>Added on</th>
                                     <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+            </tr>
+        </thead>
+        <tbody>
                                 <?php
                                 // Benutzerdefinierte Domains abrufen
                                 $stmt = $pdo->prepare("
@@ -1002,7 +1195,7 @@ try {
 
                                 if (empty($domains)) {
                                     echo '<tr><td colspan="6" class="text-center">No custom domains available</td></tr>';
-                                } else {
+      } else {
                                     foreach ($domains as $domain) {
                                         $status = $domain['verified'] ? 
                                             '<span class="badge bg-success">Verified</span>' : 
@@ -1035,11 +1228,12 @@ try {
                                         
                                         if (!$domain['verified']) {
                                             echo '<a href="?verify_domain=' . $domain['id'] . '" class="btn btn-sm btn-primary me-1">Verify</a>';
+                                            echo '<button type="button" class="btn btn-sm btn-info me-1" data-bs-toggle="modal" data-bs-target="#cnameHelpModal" data-domain="' . htmlspecialchars($domain['domain']) . '">Configure CNAME</button>';
                                         } else if ($domain['ssl_status'] !== 'active') {
                                             echo '<a href="?request_ssl=' . $domain['id'] . '" class="btn btn-sm btn-success me-1">Request SSL</a>';
                                         }
                                         
-                                        echo '<a href="?delete_domain=' . $domain['id'] . '" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to delete this domain?\');">Delete</a>';
+                                        echo '<a href="?delete_domain=' . $domain['id'] . '&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to delete this domain?\');">Delete</a>';
                                         echo '</td>';
                                         echo '</tr>';
                                     }
@@ -1194,7 +1388,7 @@ try {
                                 <option value="">-- Please select service --</option>
                                 <?php foreach($sensors as $sensor): ?>
                                     <option value="<?php echo $sensor['id']; ?>"><?php echo htmlspecialchars($sensor['name']); ?></option>
-                                <?php endforeach; ?>
+            <?php endforeach; ?>
                             </select>
                         </div>
                         <button type="submit" name="add_maintenance" class="btn btn-primary">Schedule</button>
@@ -1228,6 +1422,14 @@ try {
                             <input type="time" id="incident_time" name="incident_time" class="form-control" required>
                         </div>
                         <div class="form-group">
+                            <label for="impact">Impact Severity</label>
+                            <select id="impact" name="impact" class="form-control" required>
+                                <option value="minor">Minor - Low Impact</option>
+                                <option value="major">Major - Significant Impact</option>
+                                <option value="critical">Critical - Service Outage</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label for="service_id">Service</label>
                             <select id="service_id" name="service_id" class="form-control" required>
                                 <option value="">-- Please select service --</option>
@@ -1243,92 +1445,650 @@ try {
         </div>
     </div>
 
+    <!-- CNAME Help Modal -->
+    <div class="modal fade" id="cnameHelpModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">CNAME Configuration Help</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>To verify your domain, you need to add a CNAME record in your DNS settings.</p>
+                    
+                    <div class="alert alert-info">
+                        <strong>Domain:</strong> <span id="domainName"></span><br>
+                        <strong>CNAME Record:</strong> Set to <code><?php echo $_SERVER['HTTP_HOST']; ?></code>
+                    </div>
+                    
+                    <h6>General Steps:</h6>
+                    <ol>
+                        <li>Log in to your domain registrar or DNS provider</li>
+                        <li>Go to the DNS management section</li>
+                        <li>Add a new CNAME record for your domain</li>
+                        <li>Set the target/value to <code><?php echo $_SERVER['HTTP_HOST']; ?></code></li>
+                        <li>Save changes</li>
+                        <li>Wait for DNS propagation (can take up to 24 hours)</li>
+                    </ol>
+                    
+                    <h6>Example for Common Providers:</h6>
+                    <div class="accordion" id="dnsProviders">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#godaddy">
+                                    GoDaddy
+                                </button>
+                            </h2>
+                            <div id="godaddy" class="accordion-collapse collapse" data-bs-parent="#dnsProviders">
+                                <div class="accordion-body">
+                                    <ol>
+                                        <li>Go to "My Products" > Select your domain</li>
+                                        <li>Click "DNS" or "Manage DNS"</li>
+                                        <li>Under "Records", find the "Add" button</li>
+                                        <li>Select "CNAME" as the record type</li>
+                                        <li>For "Host", enter @ or your subdomain</li>
+                                        <li>For "Points to", enter <code><?php echo $_SERVER['HTTP_HOST']; ?></code></li>
+                                        <li>Set TTL to 1 Hour</li>
+                                        <li>Click "Save"</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#cloudflare">
+                                    Cloudflare
+                                </button>
+                            </h2>
+                            <div id="cloudflare" class="accordion-collapse collapse" data-bs-parent="#dnsProviders">
+                                <div class="accordion-body">
+                                    <ol>
+                                        <li>Log in to Cloudflare</li>
+                                        <li>Select your domain</li>
+                                        <li>Go to the "DNS" tab</li>
+                                        <li>Click "Add Record"</li>
+                                        <li>Select "CNAME" as the record type</li>
+                                        <li>For "Name", enter @ or your subdomain</li>
+                                        <li>For "Target", enter <code><?php echo $_SERVER['HTTP_HOST']; ?></code></li>
+                                        <li>Set "Proxy status" to "DNS only" (gray cloud)</li>
+                                        <li>Click "Save"</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#porkbun">
+                                    Porkbun
+                                </button>
+                            </h2>
+                            <div id="porkbun" class="accordion-collapse collapse" data-bs-parent="#dnsProviders">
+                                <div class="accordion-body">
+                                    <ol>
+                                        <li>Log in to your Porkbun account</li>
+                                        <li>Go to "Domain Management" and select your domain</li>
+                                        <li>Click on "DNS Records"</li>
+                                        <li>Under "Add a DNS Record", select "CNAME" from the dropdown</li>
+                                        <li>For "Name", enter the subdomain portion (e.g., "status" for status.yourdomain.com) or leave empty for root domain</li>
+                                        <li>For "Content", enter <code><?php echo $_SERVER['HTTP_HOST']; ?></code></li>
+                                        <li>Set "TTL" to 300 or 3600 seconds</li>
+                                        <li>Click "Add Record"</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Response Time Chart Modal -->
+    <div class="modal fade" id="responseTimeChartModal" tabindex="-1" aria-labelledby="responseTimeChartModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="responseTimeChartModalLabel">Response Time History</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex justify-content-between mb-3">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-primary active" onclick="updateChartPeriod(7)">7 Days</button>
+                            <button type="button" class="btn btn-outline-primary" onclick="updateChartPeriod(30)">30 Days</button>
+                            <button type="button" class="btn btn-outline-primary" onclick="updateChartPeriod(90)">90 Days</button>
+                        </div>
+                        <div class="sensor-stats">
+                            <div class="badge bg-success me-1">Uptime: <span id="uptime-stat">-</span></div>
+                            <div class="badge bg-info">Avg. Response: <span id="avg-response-stat">-</span></div>
+                        </div>
+                    </div>
+                    <div class="chart-container" style="position: relative; height:400px;">
+                        <canvas id="responseTimeChart"></canvas>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <h6>Recent Checks</h6>
+                            <div class="table-responsive" style="max-height:200px; overflow-y:auto;">
+                                <table class="table table-sm table-hover" id="recent-checks-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Time</th>
+                                            <th>Status</th>
+                                            <th>Response</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Filled via JavaScript -->
+        </tbody>
+    </table>
+</div>
+    </div>
+                        <div class="col-md-6">
+                            <h6>Statistics</h6>
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="card mb-3">
+                                        <div class="card-body p-2 text-center">
+                                            <div class="small text-muted">Fastest Response</div>
+                                            <div class="h5" id="fastest-response">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card mb-3">
+                                        <div class="card-body p-2 text-center">
+                                            <div class="small text-muted">Slowest Response</div>
+                                            <div class="h5" id="slowest-response">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card mb-3">
+                                        <div class="card-body p-2 text-center">
+                                            <div class="small text-muted">Checks</div>
+                                            <div class="h5" id="total-checks">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card mb-3">
+                                        <div class="card-body p-2 text-center">
+                                            <div class="small text-muted">Outages</div>
+                                            <div class="h5" id="total-outages">-</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     
     <script>
-        // Navigation scroll functionality
-        document.addEventListener('DOMContentLoaded', function() {
-            // Handle smooth scrolling for navigation links
-            const navLinks = document.querySelectorAll('.nav-pills .nav-link');
+        // Global variables for the chart
+        let responseTimeChart = null;
+        let currentSensorId = null;
+        let currentChartDays = 7;
+        let sparklineCharts = {};
+        
+        // Globale Variable für aktives Modal
+        let responseTimeChartModal = null;
+        
+        // Function to load and display the detailed chart in modal
+        function loadResponseTimeChart(sensorId, sensorName) {
+            currentSensorId = sensorId;
             
-            // Set the first link as active initially
-            if (navLinks.length > 0) {
-                navLinks[0].classList.add('active');
+            // Update modal title
+            document.getElementById('responseTimeChartModalLabel').textContent = `Response Time History: ${sensorName}`;
+            
+            // Zerstöre altes Chart falls es existiert
+            if (responseTimeChart !== null && typeof responseTimeChart !== 'undefined') {
+                responseTimeChart.destroy();
+                responseTimeChart = null;
             }
             
-            navLinks.forEach(link => {
-                link.addEventListener('click', function(e) {
-                    // Prevent default anchor behavior
-                    e.preventDefault();
-                    
-                    // Remove active class from all links
-                    navLinks.forEach(l => l.classList.remove('active'));
-                    
-                    // Add active class to clicked link
-                    this.classList.add('active');
-                    
-                    // Get the target section
-                    const targetId = this.getAttribute('href');
-                    const targetSection = document.querySelector(targetId);
-                    
-                    if (targetSection) {
-                        // Scroll to the section with smooth behavior
-                        window.scrollTo({
-                            top: targetSection.offsetTop - 70, // Offset for navbar height
-                            behavior: 'smooth'
-                        });
-                        
-                        // Update URL hash without triggering scroll
-                        history.pushState(null, null, targetId);
+            // Show the modal
+            const modalEl = document.getElementById('responseTimeChartModal');
+            
+            // Event-Listener hinzufügen für das Modal-Schließen
+            modalEl.addEventListener('hidden.bs.modal', function() {
+                // Chart zerstören, wenn Modal geschlossen wird
+                if (responseTimeChart !== null && typeof responseTimeChart !== 'undefined') {
+                    responseTimeChart.destroy();
+                    responseTimeChart = null;
+                }
+            }, { once: true }); // Nur einmal ausführen
+            
+            responseTimeChartModal = new bootstrap.Modal(modalEl);
+            responseTimeChartModal.show();
+            
+            // Fetch data and render chart
+            fetchResponseTimeData(sensorId, currentChartDays);
+        }
+        
+        // Function to update the chart period
+        function updateChartPeriod(days) {
+            // Update active button state
+            document.querySelectorAll('#responseTimeChartModal .btn-group .btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update days and reload data
+            currentChartDays = days;
+            fetchResponseTimeData(currentSensorId, days);
+        }
+        
+        // Function to fetch response time data from the server
+        function fetchResponseTimeData(sensorId, days) {
+            fetch(`get_response_times.php?sensor_id=${sensorId}&days=${days}`, {
+                method: 'GET',
+                credentials: 'same-origin', // Cookies senden für Authentifizierung
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        throw new Error('Authentifizierungsfehler. Bitte aktualisieren Sie die Seite.');
+                    }
+                    throw new Error('Serverfehler: ' + response.status);
+                }
+                return response.json();
+            })
+                .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                renderResponseTimeChart(data);
+                updateResponseTimeStats(data);
+                updateRecentChecksTable(data);
+            })
+            .catch(error => {
+                console.error('Error fetching response time data:', error);
+                alert('Failed to load response time data: ' + error.message);
+            });
+        }
+        
+        // Function to render response time chart
+        function renderResponseTimeChart(data) {
+            try {
+                const ctx = document.getElementById('responseTimeChart');
+                if (!ctx) {
+                    console.error('Canvas element responseTimeChart not found!');
+                    return;
+                }
+                
+                // Zuerst das alte Chart sauber zerstören, falls es existiert
+                if (responseTimeChart !== null && typeof responseTimeChart !== 'undefined') {
+                    responseTimeChart.destroy();
+                    responseTimeChart = null;
+                }
+                
+                // Neue Chart-Context abrufen
+                const context = ctx.getContext('2d');
+                
+                // Prepare data for chart
+                const labels = data.map(item => new Date(item.check_time));
+                const responseTimes = data.map(item => item.response_time * 1000); // Convert to ms
+                const statuses = data.map(item => item.status);
+                
+                // Create datasets with point colors based on status
+                const pointColors = data.map(item => item.status === 'up' ? '#198754' : '#dc3545');
+                
+                // Create the chart
+                responseTimeChart = new Chart(context, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Response Time (ms)',
+                                data: responseTimes,
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                borderWidth: 2,
+                                tension: 0.2,
+                                pointRadius: 3,
+                                pointBackgroundColor: pointColors
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    title: function(tooltipItems) {
+                                        const date = new Date(tooltipItems[0].label);
+                                        return date.toLocaleString();
+                                    },
+                                    label: function(context) {
+                                        const index = context.dataIndex;
+                                        const status = statuses[index];
+                                        return [
+                                            `Response Time: ${context.raw.toFixed(2)} ms`,
+                                            `Status: ${status === 'up' ? 'Online' : 'Down'}`
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'day',
+                                    displayFormats: {
+                                        day: 'MMM d'
+                                    },
+                                    tooltipFormat: 'MMM d, HH:mm'
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Date/Time'
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Response Time (ms)'
+                                }
+                            }
+                        }
                     }
                 });
+            } catch (error) {
+                console.error('Error rendering response time chart:', error);
+                alert('Error rendering chart: ' + error.message);
+                
+                // Versuche, das Chart vollständig zurückzusetzen
+                responseTimeChart = null;
+            }
+        }
+        
+        // Function to update response time statistics
+        function updateResponseTimeStats(data) {
+            if (!data || data.length === 0) {
+                document.getElementById('uptime-stat').textContent = 'N/A';
+                document.getElementById('avg-response-stat').textContent = 'N/A';
+                document.getElementById('fastest-response').textContent = 'N/A';
+                document.getElementById('slowest-response').textContent = 'N/A';
+                document.getElementById('total-checks').textContent = '0';
+                document.getElementById('total-outages').textContent = '0';
+                return;
+            }
+            
+            // Calculate statistics
+            const responseTimes = data.map(item => item.response_time * 1000);
+            const upChecks = data.filter(item => item.status === 'up').length;
+            const totalChecks = data.length;
+            const uptimePercentage = (upChecks / totalChecks * 100).toFixed(2);
+            const avgResponseTime = (responseTimes.reduce((a, b) => a + b, 0) / totalChecks).toFixed(2);
+            const fastestResponse = Math.min(...responseTimes).toFixed(2);
+            const slowestResponse = Math.max(...responseTimes).toFixed(2);
+            const outages = totalChecks - upChecks;
+            
+            // Update DOM elements
+            document.getElementById('uptime-stat').textContent = `${uptimePercentage}%`;
+            document.getElementById('avg-response-stat').textContent = `${avgResponseTime} ms`;
+            document.getElementById('fastest-response').textContent = `${fastestResponse} ms`;
+            document.getElementById('slowest-response').textContent = `${slowestResponse} ms`;
+            document.getElementById('total-checks').textContent = totalChecks;
+            document.getElementById('total-outages').textContent = outages;
+        }
+        
+        // Function to update recent checks table
+        function updateRecentChecksTable(data) {
+            const tableBody = document.getElementById('recent-checks-table').querySelector('tbody');
+            tableBody.innerHTML = '';
+            
+            // Take only the last 10 checks, in reverse chronological order
+            const recentChecks = [...data].reverse().slice(0, 10);
+            
+            recentChecks.forEach(check => {
+                const row = document.createElement('tr');
+                
+                // Format date
+                const checkTime = new Date(check.check_time);
+                const formattedTime = checkTime.toLocaleString();
+                
+                // Format status
+                const statusClass = check.status === 'up' ? 'success' : 'danger';
+                const statusText = check.status === 'up' ? 'Online' : 'Down';
+                
+                // Format response time
+                const responseTime = (check.response_time * 1000).toFixed(2);
+                
+                // Create cells
+                row.innerHTML = `
+                    <td>${formattedTime}</td>
+                    <td><span class="badge bg-${statusClass}">${statusText}</span></td>
+                    <td>${responseTime} ms</td>
+                `;
+                
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Activate tooltips
+        document.addEventListener('DOMContentLoaded', function() {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl)
             });
             
-            // Check for hash in URL on page load
-            if (window.location.hash) {
-                const hash = window.location.hash;
-                const targetSection = document.querySelector(hash);
-                
-                if (targetSection) {
-                    // Activate corresponding nav link
-                    const correspondingLink = document.querySelector(`.nav-link[href="${hash}"]`);
-                    if (correspondingLink) {
-                        navLinks.forEach(l => l.classList.remove('active'));
-                        correspondingLink.classList.add('active');
+            // Event-Listener für Sensor löschen Buttons
+            document.querySelectorAll('.delete-sensor').forEach(button => {
+                button.addEventListener('click', function() {
+                    const sensorId = this.getAttribute('data-sensor-id');
+                    if (confirm('Sind Sie sicher, dass Sie diesen Sensor löschen möchten?')) {
+                        // Erstelle ein Formular und reiche es ein
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        form.style.display = 'none';
                         
-                        // Scroll to section after a small delay to ensure page is fully loaded
-                        setTimeout(() => {
-                            window.scrollTo({
-                                top: targetSection.offsetTop - 70,
-                                behavior: 'smooth'
-                            });
-                        }, 100);
-                    }
-                }
-            }
-            
-            // Update active nav item on scroll
-            window.addEventListener('scroll', function() {
-                let current = '';
-                const sections = document.querySelectorAll('div[id]');
-                
-                sections.forEach(section => {
-                    const sectionTop = section.offsetTop;
-                    
-                    if (window.pageYOffset >= sectionTop - 100) {
-                        current = section.getAttribute('id');
-                    }
-                });
-                
-                navLinks.forEach(link => {
-                    link.classList.remove('active');
-                    if (link.getAttribute('href') === '#' + current) {
-                        link.classList.add('active');
+                        // CSRF-Token hinzufügen
+                        const csrfToken = document.createElement('input');
+                        csrfToken.type = 'hidden';
+                        csrfToken.name = 'csrf_token';
+                        csrfToken.value = '<?php echo $_SESSION['csrf_token']; ?>';
+                        form.appendChild(csrfToken);
+                        
+                        // Sensor-ID hinzufügen
+                        const sensorIdInput = document.createElement('input');
+                        sensorIdInput.type = 'hidden';
+                        sensorIdInput.name = 'service_id';
+                        sensorIdInput.value = sensorId;
+                        form.appendChild(sensorIdInput);
+                        
+                        // Aktion hinzufügen
+                        const actionInput = document.createElement('input');
+                        actionInput.type = 'hidden';
+                        actionInput.name = 'delete_service';
+                        actionInput.value = '1';
+                        form.appendChild(actionInput);
+                        
+                        document.body.appendChild(form);
+                        form.submit();
                     }
                 });
             });
         });
+        
+        // Function to load sparkline data for all sensors (nur wenn explizit aufgerufen)
+        function loadAllSparklines() {
+            const sensorElements = document.querySelectorAll('.response-time-sparkline');
+            sensorElements.forEach(element => {
+                const sensorId = element.id.split('-')[1];
+                loadSparklineData(sensorId);
+            });
+        }
+        
+        // Function to load response time data for sparklines
+        function loadSparklineData(sensorId) {
+            fetch(`get_response_times.php?sensor_id=${sensorId}&days=7`, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Serverfehler: ' + response.status);
+                }
+                return response.json();
+            })
+                .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                renderSparkline(sensorId, data);
+            })
+            .catch(error => {
+                console.error('Error loading sparkline data:', error);
+                // Diskreter Fehler - keine Alert-Box anzeigen
+            });
+        }
+        
+        // Function to render a sparkline chart
+        function renderSparkline(sensorId, data) {
+            try {
+                const canvas = document.getElementById(`sparkline-${sensorId}`);
+                if (!canvas) {
+                    console.error(`Canvas element sparkline-${sensorId} not found!`);
+                    return;
+                }
+                
+                // Destroy existing chart if it exists
+                if (sparklineCharts[sensorId] !== null && typeof sparklineCharts[sensorId] !== 'undefined') {
+                    sparklineCharts[sensorId].destroy();
+                    sparklineCharts[sensorId] = null;
+                }
+                
+                // Get context
+                const ctx = canvas.getContext('2d');
+                
+                // Prepare data for chart
+                const responseTimes = data.map(item => item.response_time * 1000); // Convert to ms
+                const dates = data.map(item => new Date(item.check_time).toLocaleDateString());
+                const statuses = data.map(item => item.status);
+                
+                // Calculate gradient colors based on status
+                const gradient = ctx.createLinearGradient(0, 0, 0, 30);
+                gradient.addColorStop(0, 'rgba(13, 110, 253, 0.2)');
+                gradient.addColorStop(1, 'rgba(13, 110, 253, 0.05)');
+                
+                // Create chart
+                sparklineCharts[sensorId] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: dates,
+                        datasets: [{
+                            data: responseTimes,
+                            borderColor: '#0d6efd',
+                            backgroundColor: gradient,
+                            borderWidth: 1.5,
+                            pointRadius: 1,
+                            pointHoverRadius: 5,
+                            pointBackgroundColor: (context) => {
+                                const status = statuses[context.dataIndex];
+                                return status === 'up' ? '#198754' : '#dc3545';
+                            },
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    title: (context) => {
+                                        const index = context[0].dataIndex;
+                                        return new Date(data[index].check_time).toLocaleString();
+                                    },
+                                    label: (context) => {
+                                        const index = context.dataIndex;
+                                        const status = statuses[index];
+                                        const statusText = status === 'up' ? 'Online' : 'Down';
+                                        return [
+                                            `Response: ${context.parsed.y.toFixed(2)} ms`,
+                                            `Status: ${statusText}`
+                                        ];
+                                    }
+                                }
+                            }
+                        },
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        scales: {
+                            x: {
+                                display: false
+                            },
+                            y: {
+                                display: false,
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error(`Error rendering sparkline chart for sensor ${sensorId}:`, error);
+                // Keine Alert-Box für Sparklines, um User nicht zu stören
+                
+                // Chart zurücksetzen
+                sparklineCharts[sensorId] = null;
+            }
+        }
+        
+        // Function to toggle response time chart visibility
+        function toggleResponseTimeChart(button, sensorId, sensorName) {
+            const container = document.getElementById(`chart-container-${sensorId}`);
+            
+            // Toggle visibility
+            if (container.style.display === 'none') {
+                // Show chart
+                container.style.display = 'flex';
+                button.innerHTML = '<i class="bi bi-graph-up"></i> Verberge Grafik';
+                
+                // Load data if not loaded yet
+                if (!sparklineCharts[sensorId]) {
+                    loadSparklineData(sensorId);
+                }
+            } else {
+                // Hide chart
+                container.style.display = 'none';
+                button.innerHTML = '<i class="bi bi-graph-up"></i> Zeige Grafik';
+            }
+        }
     </script>
 </body>
 </html>

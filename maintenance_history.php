@@ -1,5 +1,5 @@
 <?php
-// maintenance_history.php
+// maintenance_history.php - API Endpoint for retrieving maintenance history
 
 require 'db.php';
 // GET-Parameter einlesen

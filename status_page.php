@@ -156,6 +156,7 @@ try {
     <title><?php echo $pageTitle; ?> - Status</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
             --primary-color: #0d6efd;
@@ -717,6 +718,68 @@ try {
         }
 
         <?php echo $customCSS; ?>
+
+        .uptime-popup:hover {
+            display: none;
+        }
+        
+        /* Incident Styles */
+        #incidents-section {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .incident-item {
+            border: 1px solid #eee;
+            border-radius: 5px;
+            padding: 15px;
+            background-color: #fff;
+        }
+        .incident-header {
+            margin-bottom: 10px;
+        }
+        .incident-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .incident-meta {
+            font-size: 14px;
+        }
+        .incident-description {
+            font-size: 14px;
+            color: #555;
+        }
+        .incident-updates {
+            border-top: 1px solid #eee;
+            padding-top: 15px;
+            margin-top: 15px;
+        }
+        .updates-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #666;
+        }
+        .update-item {
+            border-radius: 3px;
+            padding: 8px 12px;
+            background-color: #f9f9f9;
+            margin-bottom: 10px;
+        }
+        .update-meta {
+            font-size: 13px;
+        }
+        .update-message {
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .border-success { border-color: #198754 !important; }
+        .border-primary { border-color: #0d6efd !important; }
+        .border-warning { border-color: #ffc107 !important; }
+        .border-info { border-color: #0dcaf0 !important; }
+        .border-secondary { border-color: #6c757d !important; }
+        .border-danger { border-color: #dc3545 !important; }
     </style>
 </head>
 <body>
@@ -790,28 +853,113 @@ try {
         </div>
 
         <div class="card transparent-card">
-            <div class="card-header">
-                <i class="bi bi-exclamation-triangle"></i> Recent Incidents
-            </div>
-            <div class="card-content">
-                <table class="table" id="recent-incidents">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Service</th>
-                            <th>Description</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Incidents will be loaded here -->
-                    </tbody>
-                </table>
-            </div>
+<!-- Incidents Section -->
+<section id="incidents-section" class="container mt-5 mb-5">
+        <h3>Recent Incidents</h3>
+        <div class="mt-4">
+            <?php
+            // Incidents direkt aus der Datenbank holen
+            $incidentsQuery = "
+                SELECT i.*, c.name as service_name 
+                FROM incidents i 
+                LEFT JOIN config c ON i.service_id = c.id 
+                WHERE i.status_page_id = ?
+                ORDER BY i.date DESC LIMIT 10
+            ";
+            $incidentsStmt = $pdo->prepare($incidentsQuery);
+            $incidentsStmt->execute([$status_page['id']]);
+            $incidents = $incidentsStmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            if (count($incidents) > 0) {
+                foreach ($incidents as $incident) {
+                    // Updates für diesen Incident laden
+                    $updatesQuery = "
+                        SELECT iu.*, u.name as username 
+                        FROM incident_updates iu
+                        JOIN users u ON iu.created_by = u.id
+                        WHERE iu.incident_id = ?
+                        ORDER BY iu.update_time DESC
+                    ";
+                    $updatesStmt = $pdo->prepare($updatesQuery);
+                    $updatesStmt->execute([$incident['id']]);
+                    $updates = $updatesStmt->fetchAll(PDO::FETCH_ASSOC);
+                    
+                    // Status-Class bestimmen
+                    $statusClass = 'secondary';
+                    if ($incident['status'] === 'resolved') $statusClass = 'success';
+                    else if ($incident['status'] === 'in progress') $statusClass = 'primary';
+                    else if ($incident['status'] === 'investigating') $statusClass = 'warning';
+                    else if ($incident['status'] === 'identified') $statusClass = 'info';
+                    else if ($incident['status'] === 'monitoring') $statusClass = 'secondary';
+                    
+                    // Impact-Class bestimmen
+                    $impactClass = 'info';
+                    if ($incident['impact'] === 'critical') $impactClass = 'danger';
+                    else if ($incident['impact'] === 'major') $impactClass = 'warning';
+                    
+                    // Datum formatieren
+                    $date = new DateTime($incident['date']);
+                    $formattedDate = $date->format('d.m.Y H:i');
+                    ?>
+                    <div class="incident-item mb-4">
+                        <div class="incident-header d-flex justify-content-between align-items-start">
+                            <div>
+                                <h5 class="incident-title mb-1"><?php echo htmlspecialchars($incident['title'] ?: 'Unnamed Incident'); ?></h5>
+                                <div class="incident-meta text-muted mb-2">
+                                    <small><?php echo $formattedDate; ?> - <span class="badge bg-<?php echo $impactClass; ?>"><?php echo htmlspecialchars($incident['impact']); ?></span></small>
+                                </div>
+                            </div>
+                            <span class="badge bg-<?php echo $statusClass; ?>"><?php echo htmlspecialchars($incident['status']); ?></span>
+                        </div>
+                        <div class="incident-description mb-3"><?php echo nl2br(htmlspecialchars($incident['description'])); ?></div>
+                        
+                        <!-- Incident Updates -->
+                        <div class="incident-updates">
+                            <h6 class="updates-title" onclick="toggleUpdates(this)" style="cursor: pointer;">
+                                <i class="fas fa-chevron-down me-1"></i> Updates anzeigen
+                            </h6>
+                            <div class="updates-content" style="display: none;">
+                                <?php if (count($updates) > 0): ?>
+                                    <?php foreach ($updates as $update): 
+                                        // Update Status-Class bestimmen
+                                        $updateStatusClass = 'secondary';
+                                        if ($update['status'] === 'resolved') $updateStatusClass = 'success';
+                                        else if ($update['status'] === 'in progress') $updateStatusClass = 'primary';
+                                        else if ($update['status'] === 'investigating') $updateStatusClass = 'warning';
+                                        else if ($update['status'] === 'identified') $updateStatusClass = 'info';
+                                        else if ($update['status'] === 'monitoring') $updateStatusClass = 'secondary';
+                                        
+                                        // Update Zeit formatieren
+                                        $updateTime = new DateTime($update['update_time']);
+                                        $formattedUpdateTime = $updateTime->format('d.m.Y H:i');
+                                    ?>
+                                    <div class="update-item mb-3 ps-3 border-start border-<?php echo $updateStatusClass; ?>">
+                                        <div class="update-meta d-flex justify-content-between align-items-center mb-1">
+                                            <span class="update-time text-muted"><small><?php echo $formattedUpdateTime; ?></small></span>
+                                            <span class="badge bg-<?php echo $updateStatusClass; ?>"><?php echo htmlspecialchars($update['status']); ?></span>
+                                        </div>
+                                        <div class="update-message"><?php echo nl2br(htmlspecialchars($update['message'])); ?></div>
+                                    </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <p class="text-muted">Keine Updates vorhanden.</p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <?php
+                }
+            } else {
+                echo '<p class="text-muted">Keine Incidents vorhanden.</p>';
+            }
+            ?>
         </div>
+    </section>
 
-        <div class="last-check" id="last-check"></div>
+        
     </div>
+    <div class="last-check" id="last-check"></div>
+    
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
@@ -1005,44 +1153,20 @@ try {
                 .catch(error => console.error('Error loading maintenance history:', error));
         }
 
-        function fetchRecentIncidents() {
-            let url = 'recent_incidents.php?status_page_uuid=<?php echo $status_page_uuid; ?>';
-            if (filterServiceId) {
-                url += '&service_id=' + filterServiceId;
-            }
-            fetch(url)
-                .then(response => response.json())
-                .then(data => {
-                    const tableBody = document.getElementById('recent-incidents').querySelector('tbody');
-                    tableBody.innerHTML = '';
-                    data.forEach(incident => {
-                        const row = tableBody.insertRow();
-                        const date = new Date(incident.date);
-                        
-                        row.insertCell(0).textContent = date.toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
-                        row.insertCell(1).textContent = incident.service_name;
-                        row.insertCell(2).textContent = incident.description;
-                        
-                        const statusCell = row.insertCell(3);
-                        const statusBadge = document.createElement('span');
-                        statusBadge.className = 'status ' + incident.status.replace(/\s+/g, '').toLowerCase();
-                        statusBadge.textContent = incident.status.replace(/\s+/g, '').toUpperCase();
-                        statusCell.appendChild(statusBadge);
-                    });
-                })
-                .catch(error => console.error('Error loading incidents:', error));
+        // Toggle Updates
+        function toggleUpdates(element) {
+            const updatesContent = element.nextElementSibling;
+            const isHidden = updatesContent.style.display === 'none';
+            
+            updatesContent.style.display = isHidden ? 'block' : 'none';
+            element.innerHTML = isHidden 
+                ? '<i class="fas fa-chevron-up me-1"></i> Updates ausblenden' 
+                : '<i class="fas fa-chevron-down me-1"></i> Updates anzeigen';
         }
 
         document.addEventListener('DOMContentLoaded', function() {
             fetchStatus();
             fetchMaintenanceHistory();
-            fetchRecentIncidents();
             setInterval(fetchStatus, 30000);
         });
     </script>

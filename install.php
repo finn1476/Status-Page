@@ -117,7 +117,7 @@ flush();
 try {
     $pdo = new PDO("mysql:host=$dbHost", $dbUser, $dbPass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
+
     echo "<script>appendLog('Datenbankverbindung erfolgreich hergestellt.', 'success');</script>";
     flush();
     
@@ -142,7 +142,7 @@ try {
     
     $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName;charset=utf8mb4", $dbUser, $dbPass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
+
     echo "<script>appendLog('Verbindung zur Datenbank hergestellt.', 'success');</script>";
     flush();
     
@@ -398,6 +398,7 @@ try {
       `service_url` varchar(255) NOT NULL,
       `check_time` datetime NOT NULL DEFAULT current_timestamp(),
       `status` tinyint(1) NOT NULL,
+      `response_time` float DEFAULT NULL,
       PRIMARY KEY (`id`),
       KEY `user_id` (`user_id`),
       CONSTRAINT `fk_uptime_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE

@@ -1,77 +1,88 @@
 <?php
-// recent_incidents.php
+// Include API domain fix
+require_once 'api_domain_fix.php';
 
-require 'db.php';
+// Load DB Config
+require_once 'db.php';
 
-// GET-Parameter einlesen
-$status_page_uuid = isset($_GET['status_page_uuid']) ? $_GET['status_page_uuid'] : '';
-$service_id = isset($_GET['service_id']) ? $_GET['service_id'] : '';
-
-if (empty($status_page_uuid)) {
-    die(json_encode(["error" => "status_page_uuid ist erforderlich"]));
+// Error handling
+function handleError($message, $status = 500) {
+    http_response_code($status);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => $message]);
+    exit;
 }
 
-if (!empty($status_page_uuid)) {
-    // Holen der sensor_ids für die angegebene Statuspage
-    $sql = "SELECT sensor_ids FROM status_pages WHERE uuid = ?";
-    $stmt = $pdo->prepare($sql);
+// Get status page UUID from request
+$status_page_uuid = isset($_GET['status_page_uuid']) ? $_GET['status_page_uuid'] : null;
+$service_id = isset($_GET['service_id']) ? intval($_GET['service_id']) : null;
+
+if (!$status_page_uuid) {
+    handleError('Status page UUID is required', 400);
+}
+
+try {
+    // Get status page information
+    $stmt = $pdo->prepare("SELECT * FROM status_pages WHERE uuid = ?");
     $stmt->execute([$status_page_uuid]);
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    $statusPage = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($result) {
-        $sensor_ids = json_decode($result['sensor_ids'], true);
-        
-        if (!empty($sensor_ids)) {
-            // Falls eine service_id angegeben wurde, prüfen wir, ob sie zur Statuspage gehört
-            if (!empty($service_id) && in_array($service_id, $sensor_ids)) {
-                $sql = "
-                    SELECT 
-                        i.id, 
-                        i.date, 
-                        i.description, 
-                        i.status, 
-                        i.created_at, 
-                        c.name AS service_name 
-                    FROM incidents i
-                    LEFT JOIN config c ON i.service_id = c.id
-                    WHERE i.service_id = ?
-                    ORDER BY i.date DESC
-                    LIMIT 5
-                ";
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute([$service_id]);
-            } else {
-                // Falls keine service_id angegeben wurde, geben wir alle passenden Services zurück
-                $placeholders = implode(',', array_fill(0, count($sensor_ids), '?'));
-                $sql = "
-                    SELECT 
-                        i.id, 
-                        i.date, 
-                        i.description, 
-                        i.status, 
-                        i.created_at, 
-                        c.name AS service_name 
-                    FROM incidents i
-                    LEFT JOIN config c ON i.service_id = c.id
-                    WHERE i.service_id IN ($placeholders)
-                    ORDER BY i.date DESC
-                    LIMIT 5
-                ";
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute($sensor_ids);
-            }
-
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } else {
-            $data = [];
-        }
-    } else {
-        $data = [];
+    if (!$statusPage) {
+        handleError('Status page not found', 404);
     }
-} else {
-    $data = [];
-}
 
-header('Content-Type: application/json');
-echo json_encode($data);
+    // Get incidents for this status page
+    $query = "
+        SELECT 
+            i.*, 
+            c.name as service_name 
+        FROM 
+            incidents i 
+        LEFT JOIN 
+            config c ON i.service_id = c.id 
+        WHERE 
+            i.status_page_id = ?
+    ";
+    
+    $params = [$statusPage['id']];
+    
+    // Filter by service if specified
+    if ($service_id) {
+        $query .= " AND i.service_id = ?";
+        $params[] = $service_id;
+    }
+    
+    // Order by date descending, limiting to recent incidents
+    $query .= " ORDER BY i.date DESC LIMIT 10";
+    
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
+    $incidents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Get updates for each incident
+    foreach ($incidents as &$incident) {
+        $stmtUpdates = $pdo->prepare("
+            SELECT 
+                iu.*, 
+                u.name as username 
+            FROM 
+                incident_updates iu
+            JOIN 
+                users u ON iu.created_by = u.id
+            WHERE 
+                iu.incident_id = ?
+            ORDER BY 
+                iu.update_time DESC
+        ");
+        $stmtUpdates->execute([$incident['id']]);
+        $incident['updates'] = $stmtUpdates->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    header('Content-Type: application/json');
+    echo json_encode($incidents);
+    
+} catch (PDOException $e) {
+    error_log("Database error in recent_incidents.php: " . $e->getMessage());
+    handleError('Database error: ' . $e->getMessage());
+}
 ?>
