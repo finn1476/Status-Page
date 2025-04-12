@@ -812,6 +812,11 @@ try {
                             </div>
                             <button type="submit" name="subscribe" class="btn btn-custom">Subscribe</button>
                         </form>
+                        <div class="mt-3 text-center">
+                            <a href="manage_subscription.php?status_page_uuid=<?php echo $status_page_uuid; ?>" class="text-decoration-none">
+                                <small>Manage your subscription</small>
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
