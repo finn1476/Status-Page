@@ -1,3 +1,148 @@
+<?php
+// Domain-Weiterleitung
+require_once 'db.php';
+
+// Aktiviere Fehlerberichterstattung für Debugging
+// ini_set('display_errors', 1);
+// ini_set('display_startup_errors', 1);
+// error_reporting(E_ALL);
+
+// Aktuelle Domain ermitteln mit Berücksichtigung des Reverse Proxys
+function get_actual_domain() {
+    // Mögliche Header, die von Reverse Proxies gesetzt werden
+    $headers = [
+        'HTTP_X_FORWARDED_HOST',   // Standard für viele Proxies
+        'HTTP_X_FORWARDED_SERVER', // Manchmal verwendet
+        'HTTP_FORWARDED',          // Neuer HTTP/2 Standard
+        'HTTP_X_HOST',             // Manchmal von Sophos verwendet
+        'HTTP_HOST'                // Fallback auf den normalen Host-Header
+    ];
+    
+    foreach ($headers as $header) {
+        if (isset($_SERVER[$header]) && !empty($_SERVER[$header])) {
+            // Manchmal enthält der Header mehrere Werte, kommagetrennt
+            $hosts = explode(',', $_SERVER[$header]);
+            $host = trim($hosts[0]);
+            
+            // Manchmal enthält der Host auch den Port
+            if (strpos($host, ':') !== false) {
+                $host = explode(':', $host)[0];
+            }
+            
+            error_log("Domain aus Header $header: $host");
+            return strtolower($host);
+        }
+    }
+    
+    // Fallback: IP-Adresse des Servers
+    return isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : 'localhost';
+}
+
+// Erfasse die tatsächliche Domain
+$current_domain = get_actual_domain();
+
+// Erfasse zusätzlich alle Header für Debugging
+$all_headers = getallheaders();
+error_log("Alle HTTP-Header: " . json_encode($all_headers));
+
+// Debugging-Info in das Fehlerprotokoll schreiben
+error_log("Ermittelte Domain: " . $current_domain);
+error_log("Original HTTP_HOST: " . ($_SERVER['HTTP_HOST'] ?? 'nicht gesetzt'));
+
+// Überprüfen, ob die aktuelle Domain eine IP-Adresse ist
+function is_ip_address($domain) {
+    return (bool) filter_var($domain, FILTER_VALIDATE_IP);
+}
+
+// Liste der Hauptdomains (die nicht weitergeleitet werden sollen)
+$main_domains = ['status.anonfile.de', 'localhost', 'localhost:80', '127.0.0.1'];
+
+// Prüfen, ob Weiterleitung erfolgen soll
+$should_redirect = !in_array($current_domain, $main_domains);
+
+if ($should_redirect) {
+    try {
+        // Datenbankverbindung öffnen
+        $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName;charset=utf8mb4", $dbUser, $dbPass);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        
+        $found_domain = false;
+        
+        if (is_ip_address($current_domain)) {
+            // Spezialfall: Bei IP-Adresse die erste verifizierte Domain verwenden
+            error_log("IP-Adresse erkannt, suche erste verifizierte Domain");
+            $stmt = $pdo->query("SELECT * FROM custom_domains WHERE verified = 1 ORDER BY id LIMIT 1");
+            $domain = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($domain) {
+                $found_domain = true;
+                error_log("Erste verifizierte Domain gefunden: {$domain['domain']}");
+            }
+        } else {
+            // Normale Domain-Suche
+            $stmt = $pdo->prepare("SELECT * FROM custom_domains WHERE domain = ? AND verified = 1");
+            $stmt->execute([$current_domain]);
+            $domain = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Debugging-Info
+            error_log("Domainsuche für $current_domain: " . ($domain ? "Gefunden (ID: {$domain['id']})" : "Nicht gefunden"));
+            
+            if ($domain) {
+                $found_domain = true;
+            } else {
+                // Erweiterte Suche: versuche die Domain als Subdomain zu finden
+                // beispielsweise, wenn status.example.com eingegeben wurde, versuche *.example.com zu finden
+                $domain_parts = explode('.', $current_domain);
+                if (count($domain_parts) > 2) {
+                    // Entferne die erste Subdomain und ersetze sie durch Wildcard
+                    array_shift($domain_parts);
+                    $wildcard_domain = '*.' . implode('.', $domain_parts);
+                    
+                    $stmt = $pdo->prepare("SELECT * FROM custom_domains WHERE domain = ? AND verified = 1");
+                    $stmt->execute([$wildcard_domain]);
+                    $domain = $stmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    error_log("Wildcard-Domainsuche für $wildcard_domain: " . ($domain ? "Gefunden" : "Nicht gefunden"));
+                    
+                    if ($domain) {
+                        $found_domain = true;
+                    }
+                }
+            }
+        }
+        
+        // Wenn eine Domain gefunden wurde, zur zugehörigen Status-Seite weiterleiten
+        if ($found_domain) {
+            // Status-Page-ID auslesen
+            $status_page_id = $domain['status_page_id'];
+            
+            // UUID der Status-Page abrufen
+            $stmt = $pdo->prepare("SELECT uuid FROM status_pages WHERE id = ?");
+            $stmt->execute([$status_page_id]);
+            $status_page = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Debugging-Info
+            error_log("Status-Page-Suche für ID $status_page_id: " . ($status_page ? "Gefunden (UUID: {$status_page['uuid']})" : "Nicht gefunden"));
+            
+            if ($status_page) {
+                $redirect_url = "status_page.php?status_page_uuid=" . $status_page['uuid'];
+                error_log("Weiterleitung zu: $redirect_url" . (is_ip_address($current_domain) ? " (via IP-Adresse)" : ""));
+                
+                // Weiterleitung zur Status-Page
+                header("Location: $redirect_url");
+                exit;
+            }
+        }
+        
+        // Keine passende Domain gefunden - protokollieren
+        error_log("Keine passende Domain in der Datenbank gefunden für: $current_domain");
+        
+    } catch (PDOException $e) {
+        // Bei Datenbankfehlern Details protokollieren und normale Seite anzeigen
+        error_log("Domain-Weiterleitung fehlgeschlagen: " . $e->getMessage());
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="de">
 <head>

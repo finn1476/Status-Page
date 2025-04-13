@@ -247,6 +247,7 @@ try {
       `url` varchar(255) NOT NULL,
       `sensor_type` varchar(50) NOT NULL DEFAULT 'http',
       `sensor_config` text DEFAULT NULL,
+      `ssl_expiry_date` date DEFAULT NULL COMMENT 'SSL certificate expiration date',
       PRIMARY KEY (`id`),
       KEY `user_id` (`user_id`),
       CONSTRAINT `fk_config_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
@@ -288,10 +289,13 @@ try {
       `verification_token` varchar(64) DEFAULT NULL,
       `expires_at` timestamp NULL DEFAULT NULL,
       `verified_at` timestamp NULL DEFAULT NULL,
+      `unsubscribe_token` varchar(64) DEFAULT NULL,
+      `unsubscribe_expires_at` timestamp NULL DEFAULT NULL,
       `created_at` datetime DEFAULT current_timestamp(),
       PRIMARY KEY (`id`),
       UNIQUE KEY `email_status_page` (`email`,`status_page_id`),
       KEY `status_page_id` (`status_page_id`),
+      KEY `idx_unsubscribe_token` (`unsubscribe_token`),
       CONSTRAINT `fk_subscribers_status_page` FOREIGN KEY (`status_page_id`) REFERENCES `status_pages` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
     ";
@@ -315,6 +319,23 @@ try {
       KEY `fk_incidents_service` (`service_id`),
       CONSTRAINT `fk_incidents_service` FOREIGN KEY (`service_id`) REFERENCES `config` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
       CONSTRAINT `fk_incidents_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+    ";
+    
+    // incident_updates
+    $tables['incident_updates'] = "
+    CREATE TABLE IF NOT EXISTS `incident_updates` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `incident_id` int(11) NOT NULL,
+      `update_time` datetime NOT NULL DEFAULT current_timestamp(),
+      `message` text NOT NULL,
+      `status` enum('investigating','identified','monitoring','resolved','in progress') DEFAULT 'investigating',
+      `created_by` int(11) NOT NULL,
+      PRIMARY KEY (`id`),
+      KEY `incident_id` (`incident_id`),
+      KEY `created_by` (`created_by`),
+      CONSTRAINT `fk_incident_updates_incident` FOREIGN KEY (`incident_id`) REFERENCES `incidents` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT `fk_incident_updates_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
     ";
     
@@ -458,6 +479,20 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
     ";
     
+    // domain_access_log
+    $tables['domain_access_log'] = "
+    CREATE TABLE IF NOT EXISTS `domain_access_log` (
+      `id` int(11) NOT NULL AUTO_INCREMENT,
+      `domain` varchar(255) NOT NULL,
+      `ip` varchar(45) NOT NULL,
+      `user_agent` text DEFAULT NULL,
+      `access_date` datetime NOT NULL,
+      PRIMARY KEY (`id`),
+      KEY `domain` (`domain`),
+      KEY `access_date` (`access_date`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+    ";
+    
     // Spalten-Definitionen für Aktualisierungen
     $columns = [
         'email_notifications' => [
@@ -470,6 +505,14 @@ try {
         'incidents' => [
             'title' => "ALTER TABLE `incidents` ADD COLUMN `title` VARCHAR(255) NOT NULL AFTER `status_page_id`;",
             'impact' => "ALTER TABLE `incidents` ADD COLUMN `impact` ENUM('minor','major','critical') DEFAULT 'minor' AFTER `description`;"
+        ],
+        'email_subscribers' => [
+            'unsubscribe_token' => "ALTER TABLE `email_subscribers` ADD COLUMN `unsubscribe_token` VARCHAR(64) DEFAULT NULL AFTER `verified_at`;",
+            'unsubscribe_expires_at' => "ALTER TABLE `email_subscribers` ADD COLUMN `unsubscribe_expires_at` TIMESTAMP NULL DEFAULT NULL AFTER `unsubscribe_token`;",
+            'idx_unsubscribe_token' => "ALTER TABLE `email_subscribers` ADD INDEX `idx_unsubscribe_token` (`unsubscribe_token`);"
+        ],
+        'config' => [
+            'ssl_expiry_date' => "ALTER TABLE `config` ADD COLUMN `ssl_expiry_date` date DEFAULT NULL COMMENT 'SSL certificate expiration date' AFTER `sensor_config`;"
         ]
     ];
     
@@ -483,14 +526,16 @@ try {
         'config', 
         'status_pages', 
         'email_subscribers', 
-        'incidents', 
+        'incidents',
+        'incident_updates',
         'maintenance_history', 
         'sensors', 
         'smtp_config', 
         'system_settings', 
         'uptime_checks', 
         'email_notifications',
-        'custom_domains'
+        'custom_domains',
+        'domain_access_log'
     ];
     
     // Erstelle alle Tabellen in der korrekten Reihenfolge
@@ -633,7 +678,12 @@ try {
                 ['site_description', 'Überwachen Sie den Status Ihrer Dienste'],
                 ['site_name', 'Status Page System'],
                 ['contact_email', 'admin@example.com'],
-                ['maintenance_mode', '0']
+                ['maintenance_mode', '0'],
+                ['allow_registration', '1'],
+                ['enable_ssl_monitoring', '1'],
+                ['check_interval', '300'],
+                ['notify_ssl_expiry', '1'],
+                ['ssl_expiry_days', '30']
             ];
             
             $stmt = $pdo->prepare("INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");

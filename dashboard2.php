@@ -595,6 +595,85 @@ try {
         }
     }
 
+    // Account löschen
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_account'])) {
+        // CSRF-Token überprüfen
+        if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+            $error = "Sicherheitsüberprüfung fehlgeschlagen. Bitte versuchen Sie es erneut.";
+        } else {
+            // Bestätigungspasswort überprüfen
+            $confirmation_password = $_POST['confirmation_password'] ?? '';
+            
+            // Benutzerpasswort aus der Datenbank abrufen
+            $stmt = $pdo->prepare("SELECT password FROM users WHERE id = ?");
+            $stmt->execute([$_SESSION['user_id']]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($user && password_verify($confirmation_password, $user['password'])) {
+                // Beginne eine Transaktion, um alle Benutzerdaten sicher zu löschen
+                $pdo->beginTransaction();
+                
+                try {
+                    // 1. Lösche alle E-Mail-Abonnenten für die Status-Pages des Benutzers
+                    $stmt = $pdo->prepare("
+                        DELETE es FROM email_subscribers es
+                        JOIN status_pages sp ON es.status_page_id = sp.id
+                        WHERE sp.user_id = ?
+                    ");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 2. Lösche alle Custom Domains des Benutzers
+                    $stmt = $pdo->prepare("DELETE FROM custom_domains WHERE user_id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 3. Lösche alle Status-Pages des Benutzers
+                    $stmt = $pdo->prepare("DELETE FROM status_pages WHERE user_id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 4. Lösche alle Incidents des Benutzers
+                    $stmt = $pdo->prepare("DELETE FROM incidents WHERE user_id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 5. Lösche alle Wartungseinträge des Benutzers
+                    $stmt = $pdo->prepare("DELETE FROM maintenance_history WHERE user_id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 6. Lösche alle Uptime-Checks des Benutzers
+                    $stmt = $pdo->prepare("DELETE FROM uptime_checks WHERE user_id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 7. Lösche alle Services/Sensoren des Benutzers
+                    $stmt = $pdo->prepare("DELETE FROM config WHERE user_id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 8. Lösche das Benutzerabonnement
+                    $stmt = $pdo->prepare("DELETE FROM user_subscriptions WHERE user_id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // 9. Lösche den Benutzer selbst
+                    $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
+                    $stmt->execute([$_SESSION['user_id']]);
+                    
+                    // Transaktion bestätigen
+                    $pdo->commit();
+                    
+                    // Benutzer ausloggen und zur Startseite weiterleiten
+                    session_unset();
+                    session_destroy();
+                    header('Location: index.php?account_deleted=1');
+                    exit;
+                    
+                } catch (PDOException $e) {
+                    // Bei Fehler Transaktion zurückrollen
+                    $pdo->rollBack();
+                    $error = "Fehler beim Löschen des Accounts: " . $e->getMessage();
+                    error_log("Account deletion error: " . $e->getMessage());
+                }
+            } else {
+                $error = "Das eingegebene Passwort ist nicht korrekt.";
+            }
+        }
+    }
 } catch (PDOException $e) {
     die('Database error: ' . $e->getMessage());
 }
@@ -1270,6 +1349,15 @@ try {
                         </div>
                         <button type="submit" name="update_settings" class="btn btn-primary">Save Settings</button>
                     </form>
+                    
+                    <hr class="my-4">
+                    
+                    <h5 class="text-danger">Account löschen</h5>
+                    <p class="text-muted">Diese Aktion kann nicht rückgängig gemacht werden. Alle Ihre Daten, Status-Pages und Sensoren werden unwiderruflich gelöscht.</p>
+                    
+                    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteAccountModal">
+                        Account löschen
+                    </button>
                 </div>
             </div>
         </div>
@@ -2090,5 +2178,43 @@ try {
             }
         }
     </script>
+
+    <!-- Delete Account Modal -->
+    <div class="modal fade" id="deleteAccountModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Account löschen</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i> Warnung: Diese Aktion kann nicht rückgängig gemacht werden!
+                    </div>
+                    <p>Wenn Sie Ihren Account löschen, werden alle folgenden Daten unwiderruflich gelöscht:</p>
+                    <ul>
+                        <li>Alle Status-Pages</li>
+                        <li>Alle Sensoren/Services</li>
+                        <li>Alle Incidents und Wartungen</li>
+                        <li>Alle benutzerdefinierten Domains</li>
+                        <li>Alle E-Mail-Abonnenten</li>
+                        <li>Ihre persönlichen Daten</li>
+                    </ul>
+                    <p>Bitte geben Sie Ihr Passwort ein, um die Löschung zu bestätigen:</p>
+                    <form method="POST">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="form-group mb-3">
+                            <label for="confirmation_password">Passwort:</label>
+                            <input type="password" id="confirmation_password" name="confirmation_password" class="form-control" required>
+                        </div>
+                        <button type="submit" name="delete_account" class="btn btn-danger">Account endgültig löschen</button>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
