@@ -1,4 +1,7 @@
 # Status Page System
+## Demo
+
+- https://status.anonfile.de
 
 Ein modernes, selbst-gehostetes System für Statusseiten, Monitoring und Benachrichtigungen.
 
