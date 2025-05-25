@@ -493,6 +493,47 @@ try {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
     ";
     
+    // email_notification_recipients
+    $tables['email_notification_recipients'] = "
+    CREATE TABLE IF NOT EXISTS `email_notification_recipients` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `user_id` int(11) NOT NULL,
+        `email` varchar(255) NOT NULL,
+        `verification_token` varchar(64) DEFAULT NULL,
+        `verified` tinyint(1) NOT NULL DEFAULT 0,
+        `verification_sent` tinyint(1) NOT NULL DEFAULT 0,
+        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `user_email` (`user_id`, `email`),
+        CONSTRAINT `fk_email_notification_recipients_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ";
+
+    // notification_settings
+    $tables['notification_settings'] = "
+    CREATE TABLE IF NOT EXISTS `notification_settings` (
+        `id` int(11) NOT NULL AUTO_INCREMENT,
+        `sensor_id` int(11) NOT NULL,
+        `enable_downtime_notifications` tinyint(1) NOT NULL DEFAULT 1,
+        `enable_ssl_notifications` tinyint(1) NOT NULL DEFAULT 1,
+        `ssl_warning_days` int(11) NOT NULL DEFAULT 30,
+        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `sensor_id` (`sensor_id`),
+        CONSTRAINT `fk_notification_settings_sensor` FOREIGN KEY (`sensor_id`) REFERENCES `config` (`id`) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    ";
+
+    // Update email_notifications table
+    $tables['email_notifications_update'] = "
+    ALTER TABLE `email_notifications` 
+    ADD COLUMN IF NOT EXISTS `sensor_id` int(11) DEFAULT NULL,
+    ADD COLUMN IF NOT EXISTS `notification_type` varchar(50) DEFAULT NULL,
+    ADD CONSTRAINT `fk_email_notifications_sensor` FOREIGN KEY (`sensor_id`) REFERENCES `config` (`id`) ON DELETE CASCADE;
+    ";
+    
     // Spalten-Definitionen für Aktualisierungen
     $columns = [
         'email_notifications' => [
@@ -535,7 +576,9 @@ try {
         'uptime_checks', 
         'email_notifications',
         'custom_domains',
-        'domain_access_log'
+        'domain_access_log',
+        'email_notification_recipients',
+        'notification_settings'
     ];
     
     // Erstelle alle Tabellen in der korrekten Reihenfolge

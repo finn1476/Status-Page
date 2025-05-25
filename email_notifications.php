@@ -166,6 +166,114 @@ class EmailNotifications {
         return $this->emailConfig->sendEmail($email, $subject, $message);
     }
 
+    public function sendSensorDowntimeNotification($sensor_id, $status_page_id) {
+        // Get sensor details
+        $stmt = $this->pdo->prepare("
+            SELECT c.*, sp.page_title, sp.uuid
+            FROM config c
+            JOIN status_pages sp ON sp.id = ?
+            WHERE c.id = ?
+        ");
+        $stmt->execute([$status_page_id, $sensor_id]);
+        $sensor = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$sensor) {
+            return false;
+        }
+
+        // Get subscribers
+        $stmt = $this->pdo->prepare("
+            SELECT email
+            FROM email_subscribers
+            WHERE status_page_id = ? AND status = 'verified'
+        ");
+        $stmt->execute([$status_page_id]);
+        $subscribers = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($subscribers)) {
+            return false;
+        }
+
+        // Prepare email content
+        $subject = "Sensor Down Alert: " . $sensor['name'];
+        $message = "
+            <h2>Sensor Down Alert: {$sensor['name']}</h2>
+            <p><strong>Service:</strong> {$sensor['name']}</p>
+            <p><strong>URL:</strong> {$sensor['url']}</p>
+            <p><strong>Type:</strong> {$sensor['sensor_type']}</p>
+            <p><strong>Time:</strong> " . date('Y-m-d H:i:s') . "</p>
+            <p>View the full status page: <a href='" . $this->getStatusPageUrl($sensor['uuid']) . "'>Click here</a></p>
+        ";
+
+        // Send emails
+        $success = true;
+        foreach ($subscribers as $email) {
+            if (!$this->emailConfig->sendEmail($email, $subject, $message)) {
+                $success = false;
+                error_log("Failed to send sensor downtime notification to {$email}: " . $this->emailConfig->getLastError());
+            }
+        }
+
+        return $success;
+    }
+
+    public function sendSSLCertificateWarning($sensor_id, $status_page_id) {
+        // Get sensor details
+        $stmt = $this->pdo->prepare("
+            SELECT c.*, sp.page_title, sp.uuid
+            FROM config c
+            JOIN status_pages sp ON sp.id = ?
+            WHERE c.id = ?
+        ");
+        $stmt->execute([$status_page_id, $sensor_id]);
+        $sensor = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$sensor || !$sensor['ssl_expiry_date']) {
+            return false;
+        }
+
+        // Get subscribers
+        $stmt = $this->pdo->prepare("
+            SELECT email
+            FROM email_subscribers
+            WHERE status_page_id = ? AND status = 'verified'
+        ");
+        $stmt->execute([$status_page_id]);
+        $subscribers = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($subscribers)) {
+            return false;
+        }
+
+        // Calculate days until expiration
+        $expiryDate = new DateTime($sensor['ssl_expiry_date']);
+        $now = new DateTime();
+        $daysUntilExpiry = $now->diff($expiryDate)->days;
+
+        // Prepare email content
+        $subject = "SSL Certificate Expiration Warning: " . $sensor['name'];
+        $message = "
+            <h2>SSL Certificate Expiration Warning</h2>
+            <p><strong>Service:</strong> {$sensor['name']}</p>
+            <p><strong>URL:</strong> {$sensor['url']}</p>
+            <p><strong>SSL Certificate Expires:</strong> {$sensor['ssl_expiry_date']}</p>
+            <p><strong>Days Until Expiration:</strong> {$daysUntilExpiry}</p>
+            <p>Please renew your SSL certificate before it expires to maintain secure connections.</p>
+            <p>View the full status page: <a href='" . $this->getStatusPageUrl($sensor['uuid']) . "'>Click here</a></p>
+        ";
+
+        // Send emails
+        $success = true;
+        foreach ($subscribers as $email) {
+            if (!$this->emailConfig->sendEmail($email, $subject, $message)) {
+                $success = false;
+                error_log("Failed to send SSL certificate warning to {$email}: " . $this->emailConfig->getLastError());
+            }
+        }
+
+        return $success;
+    }
+
     private function getStatusPageUrl($uuid) {
         return (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]/status_page.php?status_page_uuid=" . $uuid;
     }

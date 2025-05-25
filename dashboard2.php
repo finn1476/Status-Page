@@ -112,6 +112,55 @@ try {
     $stmt->execute([$_SESSION['user_id']]);
     $sensors = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Get notification settings
+    $stmt = $pdo->prepare("
+        SELECT 
+            c.id as sensor_id,
+            c.name as sensor_name,
+            ns.enable_downtime_notifications,
+            ns.enable_ssl_notifications,
+            ns.ssl_warning_days
+        FROM 
+            config c
+        LEFT JOIN 
+            notification_settings ns ON c.id = ns.sensor_id
+        WHERE 
+            c.user_id = ?
+    ");
+    $stmt->execute([$_SESSION['user_id']]);
+    $notificationSettings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Handle notification settings update
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_notifications'])) {
+        if (check_csrf_token()) {
+            $sensor_id = clean_input($_POST['sensor_id'] ?? '');
+            $enable_downtime = isset($_POST['enable_downtime']) ? 1 : 0;
+            $enable_ssl = isset($_POST['enable_ssl']) ? 1 : 0;
+            $ssl_warning_days = clean_input($_POST['ssl_warning_days'] ?? '30');
+
+            // Validate sensor ownership
+            $stmt = $pdo->prepare("SELECT id FROM config WHERE id = ? AND user_id = ?");
+            $stmt->execute([$sensor_id, $_SESSION['user_id']]);
+            if ($stmt->fetch()) {
+                // Update or insert notification settings
+                $stmt = $pdo->prepare("
+                    INSERT INTO notification_settings 
+                        (sensor_id, enable_downtime_notifications, enable_ssl_notifications, ssl_warning_days)
+                    VALUES 
+                        (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE
+                        enable_downtime_notifications = VALUES(enable_downtime_notifications),
+                        enable_ssl_notifications = VALUES(enable_ssl_notifications),
+                        ssl_warning_days = VALUES(ssl_warning_days)
+                ");
+                $stmt->execute([$sensor_id, $enable_downtime, $enable_ssl, $ssl_warning_days]);
+                $message = "Notification settings updated successfully!";
+            } else {
+                $error = "Invalid sensor selected.";
+            }
+        }
+    }
+
     // Get recent incidents
     $stmt = $pdo->prepare("
         SELECT i.*, c.name as service_name
@@ -314,6 +363,48 @@ try {
                     $message = "Domain successfully added!";
     } else {
                     $message = "Please fill in all fields.";
+                }
+            }
+
+            if (isset($_POST['add_notification_email'])) {
+                if (check_csrf_token()) {
+                    $email = clean_input($_POST['notification_email']);
+                    
+                    if (filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        try {
+                            // Check if email already exists for this user
+                            $stmt = $pdo->prepare("SELECT id FROM email_notification_recipients WHERE email = ? AND user_id = ?");
+                            $stmt->execute([$email, $_SESSION['user_id']]);
+                            
+                            if ($stmt->rowCount() == 0) {
+                                // Generate verification token
+                                $verification_token = bin2hex(random_bytes(32));
+                                
+                                // Add new recipient
+                                $stmt = $pdo->prepare("
+                                    INSERT INTO email_notification_recipients 
+                                        (user_id, email, verification_token, verification_sent) 
+                                    VALUES 
+                                        (?, ?, ?, 1)
+                                ");
+                                $stmt->execute([$_SESSION['user_id'], $email, $verification_token]);
+                                
+                                // Send verification email
+                                require_once 'email_notifications.php';
+                                $emailNotifier = new EmailNotifications($pdo);
+                                $emailNotifier->sendVerificationEmail($email, $verification_token);
+                                
+                                $message = "Recipient added. A verification email has been sent.";
+                            } else {
+                                $error = "This email address is already registered.";
+                            }
+                        } catch (PDOException $e) {
+                            $error = "Database error: " . $e->getMessage();
+                            error_log("Error adding notification recipient: " . $e->getMessage());
+                        }
+                    } else {
+                        $error = "Invalid email address.";
+                    }
                 }
             }
         }
@@ -590,6 +681,53 @@ try {
                     }
                 } else {
                     $error = "Domain not found, not verified, or insufficient permissions!";
+                }
+            }
+
+            if (isset($_GET['resend_verification'])) {
+                $recipient_id = (int)$_GET['resend_verification'];
+                
+                try {
+                    // Verify ownership
+                    $stmt = $pdo->prepare("
+                        SELECT email, verification_token 
+                        FROM email_notification_recipients 
+                        WHERE id = ? AND user_id = ?
+                    ");
+                    $stmt->execute([$recipient_id, $_SESSION['user_id']]);
+                    $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
+                    
+                    if ($recipient) {
+                        // Resend verification email
+                        require_once 'email_notifications.php';
+                        $emailNotifier = new EmailNotifications($pdo);
+                        $emailNotifier->sendVerificationEmail($recipient['email'], $recipient['verification_token']);
+                        
+                        $message = "Verification email has been resent.";
+                    }
+                } catch (PDOException $e) {
+                    $error = "Database error: " . $e->getMessage();
+                    error_log("Error resending verification: " . $e->getMessage());
+                }
+            }
+
+            if (isset($_GET['delete_recipient']) && isset($_GET['confirm']) && $_GET['confirm'] === 'true') {
+                $recipient_id = (int)$_GET['delete_recipient'];
+                
+                try {
+                    // Verify ownership and delete
+                    $stmt = $pdo->prepare("
+                        DELETE FROM email_notification_recipients 
+                        WHERE id = ? AND user_id = ?
+                    ");
+                    $stmt->execute([$recipient_id, $_SESSION['user_id']]);
+                    
+                    if ($stmt->rowCount() > 0) {
+                        $message = "Recipient removed successfully.";
+                    }
+                } catch (PDOException $e) {
+                    $error = "Database error: " . $e->getMessage();
+                    error_log("Error deleting recipient: " . $e->getMessage());
                 }
             }
         }
@@ -1359,6 +1497,132 @@ try {
                         Account löschen
                     </button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Notification Settings Section -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">Notification Settings</h5>
+            </div>
+            <div class="card-body">
+                <!-- Notification Recipients -->
+                <div class="mb-4">
+                    <h6 class="border-bottom pb-2">Notification Recipients</h6>
+                    <form method="POST" action="" class="mb-3">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <div class="row align-items-end">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="notification_email">Email Address:</label>
+                                    <input type="email" name="notification_email" id="notification_email" class="form-control" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <button type="submit" name="add_notification_email" class="btn btn-primary">Add Recipient</button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Email Address</th>
+                                    <th>Status</th>
+                                    <th>Added On</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php
+                                // Get notification recipients
+                                $stmt = $pdo->prepare("
+                                    SELECT en.*, 
+                                           CASE 
+                                               WHEN en.verified = 1 THEN 'Verified'
+                                               WHEN en.verification_sent = 1 THEN 'Pending Verification'
+                                               ELSE 'Not Verified'
+                                           END as status_text
+                                    FROM email_notification_recipients en
+                                    WHERE en.user_id = ?
+                                    ORDER BY en.created_at DESC
+                                ");
+                                $stmt->execute([$_SESSION['user_id']]);
+                                $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                                foreach ($recipients as $recipient) {
+                                    $statusClass = $recipient['verified'] ? 'success' : 
+                                        ($recipient['verification_sent'] ? 'warning' : 'danger');
+                                    echo '<tr>';
+                                    echo '<td>' . htmlspecialchars($recipient['email']) . '</td>';
+                                    echo '<td><span class="badge bg-' . $statusClass . '">' . $recipient['status_text'] . '</span></td>';
+                                    echo '<td>' . date('Y-m-d H:i', strtotime($recipient['created_at'])) . '</td>';
+                                    echo '<td>';
+                                    if (!$recipient['verified']) {
+                                        echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1">Resend Verification</a>';
+                                    }
+                                    echo '<a href="?delete_recipient=' . $recipient['id'] . '&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to remove this recipient?\');">Remove</a>';
+                                    echo '</td>';
+                                    echo '</tr>';
+                                }
+                                ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Sensor Notification Settings -->
+                <h6 class="border-bottom pb-2">Sensor Notification Settings</h6>
+                <form method="POST" action="">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Sensor</th>
+                                    <th>Downtime Notifications</th>
+                                    <th>SSL Certificate Warnings</th>
+                                    <th>SSL Warning Days</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($notificationSettings as $setting): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($setting['sensor_name']); ?></td>
+                                    <td>
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" 
+                                                   name="enable_downtime" 
+                                                   <?php echo $setting['enable_downtime_notifications'] ? 'checked' : ''; ?>>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="form-check">
+                                            <input type="checkbox" class="form-check-input" 
+                                                   name="enable_ssl" 
+                                                   <?php echo $setting['enable_ssl_notifications'] ? 'checked' : ''; ?>>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <input type="number" class="form-control" 
+                                               name="ssl_warning_days" 
+                                               value="<?php echo htmlspecialchars($setting['ssl_warning_days'] ?? '30'); ?>" 
+                                               min="1" max="90">
+                                    </td>
+                                    <td>
+                                        <input type="hidden" name="sensor_id" value="<?php echo $setting['sensor_id']; ?>">
+                                        <button type="submit" name="update_notifications" class="btn btn-primary btn-sm">
+                                            Update
+                                        </button>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
