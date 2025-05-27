@@ -141,26 +141,27 @@ class EmailNotifications {
         return $success;
     }
 
-    public function sendVerificationEmail($email, $status_page_id, $verification_token) {
-        // Get status page details
+    public function sendVerificationEmail($email, $user_id, $verification_token) {
+        // Get user details
         $stmt = $this->pdo->prepare("
-            SELECT page_title, uuid
-            FROM status_pages
+            SELECT name
+            FROM users
             WHERE id = ?
         ");
-        $stmt->execute([$status_page_id]);
-        $page = $stmt->fetch(PDO::FETCH_ASSOC);
+        $stmt->execute([$user_id]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$page) {
+        if (!$user) {
             return false;
         }
 
-        $subject = "Verify your subscription to " . $page['page_title'];
+        $subject = "Verify your email for Status Page Notifications";
         $message = "
-            <h2>Verify your subscription to {$page['page_title']}</h2>
-            <p>Thank you for subscribing to status updates. Please click the link below to verify your email address:</p>
+            <h2>Verify your email for Status Page Notifications</h2>
+            <p>Hello {$user['name']},</p>
+            <p>Thank you for setting up email notifications. Please click the link below to verify your email address:</p>
             <p><a href='" . $this->getVerificationUrl($verification_token) . "'>Verify Email</a></p>
-            <p>If you didn't request this subscription, you can safely ignore this email.</p>
+            <p>If you didn't request this verification, you can safely ignore this email.</p>
         ";
 
         return $this->emailConfig->sendEmail($email, $subject, $message);
@@ -211,6 +212,58 @@ class EmailNotifications {
             if (!$this->emailConfig->sendEmail($email, $subject, $message)) {
                 $success = false;
                 error_log("Failed to send sensor downtime notification to {$email}: " . $this->emailConfig->getLastError());
+            }
+        }
+
+        return $success;
+    }
+
+    public function sendSensorRecoveryNotification($sensor_id, $status_page_id) {
+        // Get sensor details
+        $stmt = $this->pdo->prepare("
+            SELECT c.*, sp.page_title, sp.uuid
+            FROM config c
+            JOIN status_pages sp ON sp.id = ?
+            WHERE c.id = ?
+        ");
+        $stmt->execute([$status_page_id, $sensor_id]);
+        $sensor = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$sensor) {
+            return false;
+        }
+
+        // Get subscribers
+        $stmt = $this->pdo->prepare("
+            SELECT email
+            FROM email_subscribers
+            WHERE status_page_id = ? AND status = 'verified'
+        ");
+        $stmt->execute([$status_page_id]);
+        $subscribers = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($subscribers)) {
+            return false;
+        }
+
+        // Prepare email content
+        $subject = "Service Restored: " . $sensor['name'];
+        $message = "
+            <h2>Service Restored: {$sensor['name']}</h2>
+            <p><strong>Service:</strong> {$sensor['name']}</p>
+            <p><strong>URL:</strong> {$sensor['url']}</p>
+            <p><strong>Type:</strong> {$sensor['sensor_type']}</p>
+            <p><strong>Time:</strong> " . date('Y-m-d H:i:s') . "</p>
+            <p>The service is now back online and functioning normally.</p>
+            <p>View the full status page: <a href='" . $this->getStatusPageUrl($sensor['uuid']) . "'>Click here</a></p>
+        ";
+
+        // Send emails
+        $success = true;
+        foreach ($subscribers as $email) {
+            if (!$this->emailConfig->sendEmail($email, $subject, $message)) {
+                $success = false;
+                error_log("Failed to send sensor recovery notification to {$email}: " . $this->emailConfig->getLastError());
             }
         }
 
@@ -274,11 +327,69 @@ class EmailNotifications {
         return $success;
     }
 
+    public function sendSSLCertificateRenewalNotification($sensor_id, $status_page_id) {
+        // Get sensor details
+        $stmt = $this->pdo->prepare("
+            SELECT c.*, sp.page_title, sp.uuid
+            FROM config c
+            JOIN status_pages sp ON sp.id = ?
+            WHERE c.id = ?
+        ");
+        $stmt->execute([$status_page_id, $sensor_id]);
+        $sensor = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$sensor || !$sensor['ssl_expiry_date']) {
+            return false;
+        }
+
+        // Get subscribers
+        $stmt = $this->pdo->prepare("
+            SELECT email
+            FROM email_subscribers
+            WHERE status_page_id = ? AND status = 'verified'
+        ");
+        $stmt->execute([$status_page_id]);
+        $subscribers = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($subscribers)) {
+            return false;
+        }
+
+        // Calculate days until expiration
+        $expiryDate = new DateTime($sensor['ssl_expiry_date']);
+        $now = new DateTime();
+        $daysUntilExpiry = $now->diff($expiryDate)->days;
+
+        // Prepare email content
+        $subject = "SSL Certificate Renewed: " . $sensor['name'];
+        $message = "
+            <h2>SSL Certificate Renewed</h2>
+            <p><strong>Service:</strong> {$sensor['name']}</p>
+            <p><strong>URL:</strong> {$sensor['url']}</p>
+            <p><strong>New SSL Certificate Expires:</strong> {$sensor['ssl_expiry_date']}</p>
+            <p><strong>Days Until Expiration:</strong> {$daysUntilExpiry}</p>
+            <p>The SSL certificate has been successfully renewed and is now valid for a longer period.</p>
+            <p>View the full status page: <a href='" . $this->getStatusPageUrl($sensor['uuid']) . "'>Click here</a></p>
+        ";
+
+        // Send emails
+        $success = true;
+        foreach ($subscribers as $email) {
+            if (!$this->emailConfig->sendEmail($email, $subject, $message)) {
+                $success = false;
+                error_log("Failed to send SSL certificate renewal notification to {$email}: " . $this->emailConfig->getLastError());
+            }
+        }
+
+        return $success;
+    }
+
     private function getStatusPageUrl($uuid) {
         return (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]/status_page.php?status_page_uuid=" . $uuid;
     }
 
     private function getVerificationUrl($token) {
-        return (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]/verify_subscription.php?token=" . $token;
+        return (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . 
+               "://$_SERVER[HTTP_HOST]/verify_notification.php?token=" . $token;
     }
 } 

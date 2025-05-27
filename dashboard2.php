@@ -133,30 +133,34 @@ try {
     // Handle notification settings update
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_notifications'])) {
         if (check_csrf_token()) {
-            $sensor_id = clean_input($_POST['sensor_id'] ?? '');
-            $enable_downtime = isset($_POST['enable_downtime']) ? 1 : 0;
-            $enable_ssl = isset($_POST['enable_ssl']) ? 1 : 0;
-            $ssl_warning_days = clean_input($_POST['ssl_warning_days'] ?? '30');
+            try {
+                foreach ($_POST['settings'] as $sensor_id => $settings) {
+                    $enable_downtime = isset($settings['enable_downtime']) ? 1 : 0;
+                    $enable_ssl = isset($settings['enable_ssl']) ? 1 : 0;
+                    $ssl_warning_days = clean_input($settings['ssl_warning_days'] ?? '30');
 
-            // Validate sensor ownership
-            $stmt = $pdo->prepare("SELECT id FROM config WHERE id = ? AND user_id = ?");
-            $stmt->execute([$sensor_id, $_SESSION['user_id']]);
-            if ($stmt->fetch()) {
-                // Update or insert notification settings
-                $stmt = $pdo->prepare("
-                    INSERT INTO notification_settings 
-                        (sensor_id, enable_downtime_notifications, enable_ssl_notifications, ssl_warning_days)
-                    VALUES 
-                        (?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                        enable_downtime_notifications = VALUES(enable_downtime_notifications),
-                        enable_ssl_notifications = VALUES(enable_ssl_notifications),
-                        ssl_warning_days = VALUES(ssl_warning_days)
-                ");
-                $stmt->execute([$sensor_id, $enable_downtime, $enable_ssl, $ssl_warning_days]);
+                    // Validate sensor ownership
+                    $stmt = $pdo->prepare("SELECT id FROM config WHERE id = ? AND user_id = ?");
+                    $stmt->execute([$sensor_id, $_SESSION['user_id']]);
+                    if ($stmt->fetch()) {
+                        // Update or insert notification settings
+                        $stmt = $pdo->prepare("
+                            INSERT INTO notification_settings 
+                                (sensor_id, enable_downtime_notifications, enable_ssl_notifications, ssl_warning_days)
+                            VALUES 
+                                (?, ?, ?, ?)
+                            ON DUPLICATE KEY UPDATE
+                                enable_downtime_notifications = VALUES(enable_downtime_notifications),
+                                enable_ssl_notifications = VALUES(enable_ssl_notifications),
+                                ssl_warning_days = VALUES(ssl_warning_days)
+                        ");
+                        $stmt->execute([$sensor_id, $enable_downtime, $enable_ssl, $ssl_warning_days]);
+                    }
+                }
                 $message = "Notification settings updated successfully!";
-            } else {
-                $error = "Invalid sensor selected.";
+            } catch (PDOException $e) {
+                $error = "Database error: " . $e->getMessage();
+                error_log("Error updating notification settings: " . $e->getMessage());
             }
         }
     }
@@ -392,7 +396,7 @@ try {
                                 // Send verification email
                                 require_once 'email_notifications.php';
                                 $emailNotifier = new EmailNotifications($pdo);
-                                $emailNotifier->sendVerificationEmail($email, $verification_token);
+                                $emailNotifier->sendVerificationEmail($email, $_SESSION['user_id'], $verification_token);
                                 
                                 $message = "Recipient added. A verification email has been sent.";
                             } else {
@@ -688,9 +692,9 @@ try {
                 $recipient_id = (int)$_GET['resend_verification'];
                 
                 try {
-                    // Verify ownership
+                    // Verify ownership and check verification status
                     $stmt = $pdo->prepare("
-                        SELECT email, verification_token 
+                        SELECT email, verification_token, user_id, verified, verification_sent 
                         FROM email_notification_recipients 
                         WHERE id = ? AND user_id = ?
                     ");
@@ -698,16 +702,71 @@ try {
                     $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
                     
                     if ($recipient) {
-                        // Resend verification email
-                        require_once 'email_notifications.php';
-                        $emailNotifier = new EmailNotifications($pdo);
-                        $emailNotifier->sendVerificationEmail($recipient['email'], $recipient['verification_token']);
-                        
-                        $message = "Verification email has been resent.";
+                        // Check if already verified
+                        if ($recipient['verified']) {
+                            $error = "This email address is already verified.";
+                        } else {
+                            // Check if verification was sent in the last 5 minutes
+                            $stmt = $pdo->prepare("
+                                SELECT COUNT(*) as recent_sends 
+                                FROM email_notification_recipients 
+                                WHERE id = ? AND verification_sent = 1 
+                                AND updated_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                            ");
+                            $stmt->execute([$recipient_id]);
+                            $recentSends = $stmt->fetch(PDO::FETCH_ASSOC)['recent_sends'];
+                            
+                            if ($recentSends > 0) {
+                                // Calculate remaining time
+                                $stmt = $pdo->prepare("
+                                    SELECT TIMESTAMPDIFF(SECOND, updated_at, DATE_ADD(NOW(), INTERVAL 5 MINUTE)) as remaining_seconds
+                                    FROM email_notification_recipients 
+                                    WHERE id = ? AND verification_sent = 1
+                                ");
+                                $stmt->execute([$recipient_id]);
+                                $remaining = $stmt->fetch(PDO::FETCH_ASSOC)['remaining_seconds'];
+                                
+                                $minutes = floor($remaining / 60);
+                                $seconds = $remaining % 60;
+                                
+                                $error = "Please wait before requesting another verification email. Time remaining: " . 
+                                        sprintf("%02d:%02d", $minutes, $seconds);
+                            } else {
+                                // Generate new verification token
+                                $new_token = bin2hex(random_bytes(32));
+                                
+                                // Update the verification token
+                                $stmt = $pdo->prepare("
+                                    UPDATE email_notification_recipients 
+                                    SET verification_token = ?,
+                                        verification_sent = 1,
+                                        updated_at = NOW()
+                                    WHERE id = ? AND user_id = ?
+                                ");
+                                $stmt->execute([$new_token, $recipient_id, $_SESSION['user_id']]);
+                                
+                                // Resend verification email
+                                require_once 'email_notifications.php';
+                                $emailNotifier = new EmailNotifications($pdo);
+                                $result = $emailNotifier->sendVerificationEmail($recipient['email'], $recipient['user_id'], $new_token);
+                                
+                                if ($result) {
+                                    $message = "Verification email has been resent.";
+                                } else {
+                                    $error = "Failed to send verification email. Please try again later.";
+                                    error_log("Failed to send verification email to: " . $recipient['email']);
+                                }
+                            }
+                        }
+                    } else {
+                        $error = "Recipient not found or you don't have permission to resend verification.";
                     }
                 } catch (PDOException $e) {
-                    $error = "Database error: " . $e->getMessage();
+                    $error = "Database error occurred. Please try again later.";
                     error_log("Error resending verification: " . $e->getMessage());
+                } catch (Exception $e) {
+                    $error = "An unexpected error occurred. Please try again later.";
+                    error_log("Unexpected error in resend verification: " . $e->getMessage());
                 }
             }
 
@@ -932,6 +991,214 @@ try {
         .expand-chart-btn:hover {
             color: #0d6efd;
         }
+
+        /* Add these styles to your existing CSS */
+        .verification-countdown {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.5rem;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            color: #6c757d;
+            margin-right: 0.5rem;
+        }
+
+        .verification-countdown i {
+            margin-right: 0.5rem;
+            color: #0d6efd;
+        }
+
+        .resend-verification-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .resend-verification-btn i {
+            font-size: 0.875rem;
+        }
+
+        /* Add these styles to your existing CSS */
+        .notification-settings-table {
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            overflow: hidden;
+        }
+
+        .notification-settings-table .form-check {
+            padding-left: 2.25rem;
+            margin: 0;
+            position: relative;
+        }
+
+        .notification-settings-table .form-check-input {
+            width: 1.25rem;
+            height: 1.25rem;
+            margin-left: -2.25rem;
+            margin-top: 0;
+            cursor: pointer;
+            border: 1.5px solid #ced4da;
+            border-radius: 0.25rem;
+            transition: all 0.15s ease-in-out;
+            position: relative;
+            background-color: #fff;
+        }
+
+        .notification-settings-table .form-check-input:checked {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+
+        .notification-settings-table .form-check-input:checked::after {
+            content: '';
+            position: absolute;
+            left: 0.4rem;
+            top: 0.2rem;
+            width: 0.35rem;
+            height: 0.6rem;
+            border: solid white;
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .notification-settings-table .form-check-input:hover {
+            border-color: #0d6efd;
+        }
+
+        .notification-settings-table .form-check-input:focus {
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+            border-color: #0d6efd;
+        }
+
+        .notification-settings-table .form-check-label {
+            font-size: 0.875rem;
+            color: #495057;
+            padding-top: 0.1rem;
+            user-select: none;
+        }
+
+        .notification-settings-table .input-group {
+            width: auto;
+            min-width: 110px;
+        }
+
+        .notification-settings-table .form-control {
+            width: 70px;
+            padding: 0.375rem 0.5rem;
+            font-size: 0.875rem;
+            border-radius: 0.25rem 0 0 0.25rem;
+            border: 1.5px solid #ced4da;
+            transition: all 0.15s ease-in-out;
+            text-align: center;
+            background-color: #fff;
+        }
+
+        .notification-settings-table .form-control:focus {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+        }
+
+        .notification-settings-table .input-group-text {
+            background-color: #f8f9fa;
+            border: 1.5px solid #ced4da;
+            border-left: none;
+            border-radius: 0 0.25rem 0.25rem 0;
+            color: #6c757d;
+            font-size: 0.875rem;
+            padding: 0.375rem 0.5rem;
+        }
+
+        .notification-settings-table .btn-update {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.375rem;
+            border-radius: 0.25rem;
+            transition: all 0.15s ease-in-out;
+            background-color: #0d6efd;
+            border: none;
+        }
+
+        .notification-settings-table .btn-update:hover {
+            background-color: #0b5ed7;
+            transform: translateY(-1px);
+        }
+
+        .notification-settings-table .btn-update i {
+            font-size: 0.875rem;
+        }
+
+        .notification-settings-table td {
+            vertical-align: middle;
+            padding: 1rem;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .notification-settings-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            padding: 1rem;
+            border-bottom: 2px solid #dee2e6;
+            color: #495057;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .notification-settings-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .notification-settings-table tr {
+            transition: background-color 0.15s ease-in-out;
+        }
+
+        .notification-settings-table tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        .notification-settings-table .sensor-name {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 500;
+            color: #212529;
+            font-size: 0.875rem;
+        }
+
+        .notification-settings-table .sensor-name i {
+            font-size: 1rem;
+            color: #0d6efd;
+        }
+
+        /* Card styling for the notification settings section */
+        .notification-settings-card {
+            background: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 1.5rem;
+        }
+
+        .notification-settings-card .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+            padding: 1rem;
+        }
+
+        .notification-settings-card .card-header h5 {
+            margin: 0;
+            color: #212529;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .notification-settings-card .card-body {
+            padding: 1.25rem;
+        }
     </style>
 </head>
 <body>
@@ -1109,8 +1376,8 @@ try {
                 </div>
                 <div class="card-body">
                     <?php if (count($sensors) < $userTier['max_sensors']): ?>
-                    <button type="button" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#addServiceModal">
-                        <i class="fas fa-plus"></i> Add Sensor
+                    <button type="button" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#addSensorModal">
+                        <i class="bi bi-plus-circle"></i> Add Sensor
                     </button>
                     <?php else: ?>
                     <div class="alert alert-warning mb-3">
@@ -1501,9 +1768,9 @@ try {
         </div>
 
         <!-- Notification Settings Section -->
-        <div class="card mb-4">
+        <div class="notification-settings-card">
             <div class="card-header">
-                <h5 class="mb-0">Notification Settings</h5>
+                <h5>Notification Settings</h5>
             </div>
             <div class="card-body">
                 <!-- Notification Recipients -->
@@ -1560,9 +1827,31 @@ try {
                                     echo '<td>' . date('Y-m-d H:i', strtotime($recipient['created_at'])) . '</td>';
                                     echo '<td>';
                                     if (!$recipient['verified']) {
-                                        echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1">Resend Verification</a>';
+                                        // Check if we need to show countdown
+                                        $stmt = $pdo->prepare("
+                                            SELECT TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(updated_at, INTERVAL 5 MINUTE)) as remaining_seconds
+                                            FROM email_notification_recipients 
+                                            WHERE id = ? AND verification_sent = 1 
+                                            AND updated_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                                        ");
+                                        $stmt->execute([$recipient['id']]);
+                                        $remaining = $stmt->fetch(PDO::FETCH_ASSOC)['remaining_seconds'];
+                                        
+                                        if ($remaining > 0) {
+                                            $endTime = time() + $remaining;
+                                            echo '<span class="verification-countdown" data-end-time="' . $endTime . '">';
+                                            echo '<i class="bi bi-clock"></i>';
+                                            echo 'Please wait: ' . floor($remaining / 60) . ':' . str_pad($remaining % 60, 2, '0', STR_PAD_LEFT);
+                                            echo '</span>';
+                                            echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1 resend-verification-btn" style="display:none;">';
+                                            echo '<i class="bi bi-envelope"></i> Resend Verification</a>';
+                                        } else {
+                                            echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1 resend-verification-btn">';
+                                            echo '<i class="bi bi-envelope"></i> Resend Verification</a>';
+                                        }
                                     }
-                                    echo '<a href="?delete_recipient=' . $recipient['id'] . '&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to remove this recipient?\');">Remove</a>';
+                                    echo '<a href="?delete_recipient=' . $recipient['id'] . '&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to remove this recipient?\');">';
+                                    echo '<i class="bi bi-trash"></i> Remove</a>';
                                     echo '</td>';
                                     echo '</tr>';
                                 }
@@ -1577,7 +1866,7 @@ try {
                 <form method="POST" action="">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <div class="table-responsive">
-                        <table class="table">
+                        <table class="table notification-settings-table">
                             <thead>
                                 <tr>
                                     <th>Sensor</th>
@@ -1590,30 +1879,46 @@ try {
                             <tbody>
                                 <?php foreach ($notificationSettings as $setting): ?>
                                 <tr>
-                                    <td><?php echo htmlspecialchars($setting['sensor_name']); ?></td>
+                                    <td>
+                                        <div class="sensor-name">
+                                            <i class="bi bi-hdd-network"></i>
+                                            <?php echo htmlspecialchars($setting['sensor_name']); ?>
+                                        </div>
+                                    </td>
                                     <td>
                                         <div class="form-check">
                                             <input type="checkbox" class="form-check-input" 
-                                                   name="enable_downtime" 
+                                                   name="settings[<?php echo $setting['sensor_id']; ?>][enable_downtime]" 
+                                                   id="downtime_<?php echo $setting['sensor_id']; ?>"
                                                    <?php echo $setting['enable_downtime_notifications'] ? 'checked' : ''; ?>>
+                                            <label class="form-check-label" for="downtime_<?php echo $setting['sensor_id']; ?>">
+                                                Enable
+                                            </label>
                                         </div>
                                     </td>
                                     <td>
                                         <div class="form-check">
                                             <input type="checkbox" class="form-check-input" 
-                                                   name="enable_ssl" 
+                                                   name="settings[<?php echo $setting['sensor_id']; ?>][enable_ssl]" 
+                                                   id="ssl_<?php echo $setting['sensor_id']; ?>"
                                                    <?php echo $setting['enable_ssl_notifications'] ? 'checked' : ''; ?>>
+                                            <label class="form-check-label" for="ssl_<?php echo $setting['sensor_id']; ?>">
+                                                Enable
+                                            </label>
                                         </div>
                                     </td>
                                     <td>
-                                        <input type="number" class="form-control" 
-                                               name="ssl_warning_days" 
-                                               value="<?php echo htmlspecialchars($setting['ssl_warning_days'] ?? '30'); ?>" 
-                                               min="1" max="90">
+                                        <div class="input-group">
+                                            <input type="number" class="form-control" 
+                                                   name="settings[<?php echo $setting['sensor_id']; ?>][ssl_warning_days]" 
+                                                   value="<?php echo htmlspecialchars($setting['ssl_warning_days'] ?? '30'); ?>" 
+                                                   min="1" max="90">
+                                            <span class="input-group-text">days</span>
+                                        </div>
                                     </td>
                                     <td>
-                                        <input type="hidden" name="sensor_id" value="<?php echo $setting['sensor_id']; ?>">
-                                        <button type="submit" name="update_notifications" class="btn btn-primary btn-sm">
+                                        <button type="submit" name="update_notifications" class="btn btn-update">
+                                            <i class="bi bi-save"></i>
                                             Update
                                         </button>
                                     </td>
@@ -2480,5 +2785,28 @@ try {
             </div>
         </div>
     </div>
+
+    <script>
+    // Function to update countdown timers
+    function updateCountdowns() {
+        document.querySelectorAll('.verification-countdown').forEach(element => {
+            const endTime = parseInt(element.getAttribute('data-end-time'));
+            const now = Math.floor(Date.now() / 1000);
+            const remaining = endTime - now;
+            
+            if (remaining <= 0) {
+                element.closest('tr').querySelector('.resend-verification-btn').style.display = 'inline-flex';
+                element.style.display = 'none';
+            } else {
+                const minutes = Math.floor(remaining / 60);
+                const seconds = remaining % 60;
+                element.innerHTML = `<i class="bi bi-clock"></i>Please wait: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+            }
+        });
+    }
+
+    // Update countdowns every second
+    setInterval(updateCountdowns, 1000);
+    </script>
 </body>
 </html>

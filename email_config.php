@@ -65,9 +65,9 @@ class EmailConfig {
             $mail = new PHPMailer(true);
 
             // Enable debug output for troubleshooting
-            $mail->SMTPDebug = 3; // Increased debug level for more details
+            $mail->SMTPDebug = 0; // Disable debug output in production
             $mail->Debugoutput = function($str, $level) {
-                $this->lastError .= "Debug: $str\n";
+                error_log("SMTP Debug: $str");
             };
 
             // Server settings
