@@ -882,45 +882,177 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Status Page</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+        :root {
+            --primary-color: #0d6efd;
+            --secondary-color: #6c757d;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --light-bg: #f8f9fa;
+            --dark-bg: #212529;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f5f5f5;
-            margin: 0;
-            padding: 0;
+            background-color: var(--light-bg);
+            min-height: 100vh;
         }
+
+        .wrapper {
+            display: flex;
+            width: 100%;
+            align-items: stretch;
+        }
+
+        #sidebar {
+            min-width: 250px;
+            max-width: 250px;
+            background: var(--dark-bg);
+            color: #fff;
+            transition: all 0.3s;
+            position: fixed;
+            height: 100vh;
+            z-index: 1000;
+        }
+
+        #sidebar.active {
+            margin-left: -250px;
+        }
+
+        #sidebar .sidebar-header {
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        #sidebar ul.components {
+            padding: 20px 0;
+        }
+
+        #sidebar ul li a {
+            padding: 15px 20px;
+            font-size: 1.1em;
+            display: block;
+            color: #fff;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+
+        #sidebar ul li a:hover,
+        #sidebar ul li.active > a {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        #sidebar ul li a i {
+            margin-right: 10px;
+            width: 20px;
+            text-align: center;
+        }
+
+        #content {
+            width: 100%;
+            padding: 20px;
+            min-height: 100vh;
+            transition: all 0.3s;
+            margin-left: 250px;
+        }
+
         .navbar {
+            padding: 15px 10px;
+            background: #fff;
+            border: none;
+            border-radius: 0;
             margin-bottom: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        .navbar-brand {
-            font-weight: bold;
-            font-size: 1.5rem;
+
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
-        .message {
-            padding: 10px;
-            margin-bottom: 15px;
-            border-radius: 4px;
+
+        .card-body {
+            padding: 1.5rem;
         }
-        .success {
-            background-color: #d4edda;
-            color: #155724;
+
+        .table {
+            margin-bottom: 0;
         }
-        .error {
-            background-color: #f8d7da;
-            color: #721c24;
+
+        .table th {
+            border-top: none;
+            background-color: var(--light-bg);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
         }
-        .section {
-            margin-top: 40px;
+
+        .table td {
+            vertical-align: middle;
         }
-        .form-group {
-            margin-bottom: 15px;
+
+        .btn {
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            border-radius: 5px;
+            transition: all 0.3s;
         }
-        .action-btn {
-            margin-right: 5px;
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
         }
+
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+            border-color: #0b5ed7;
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background-color: var(--danger-color);
+            border-color: var(--danger-color);
+        }
+
+        .btn-danger:hover {
+            background-color: #bb2d3b;
+            border-color: #bb2d3b;
+            transform: translateY(-1px);
+        }
+
+        .modal-content {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .modal-header {
+            background-color: var(--light-bg);
+            border-bottom: 1px solid #dee2e6;
+            border-radius: 10px 10px 0 0;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .badge {
+            padding: 0.5em 0.75em;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background-color: var(--success-color);
+        }
+
+        .badge-secondary {
+            background-color: var(--secondary-color);
+        }
+
         .usage-card {
             background: white;
             border-radius: 8px;
@@ -928,99 +1060,48 @@ try {
             margin-bottom: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
+
         .usage-title {
             font-size: 0.9rem;
             color: #6c757d;
             margin-bottom: 5px;
         }
+
         .usage-value {
             font-size: 1.2rem;
             font-weight: bold;
             margin-bottom: 5px;
         }
+
         .usage-limit {
             font-size: 0.8rem;
             color: #6c757d;
         }
+
         .progress {
             height: 8px;
             margin-top: 5px;
         }
-        .btn-disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
+
         .response-time-sparkline {
             height: 30px;
             width: 100%;
             margin-top: 5px;
         }
-        
+
         .response-time-sparkline-container {
             display: flex;
             align-items: center;
             margin-top: 8px;
             width: 100%;
         }
-        
+
         .response-time-sparkline-container canvas {
             flex: 1;
             height: 30px;
             min-width: 80px;
         }
-        
-        .show-chart-btn {
-            padding: 3px 8px;
-            font-size: 12px;
-            width: auto;
-            max-width: none;
-        }
-        
-        .show-chart-btn:hover {
-            background-color: #0d6efd;
-            color: white;
-        }
-        
-        .expand-chart-btn {
-            padding: 0;
-            margin-left: 5px;
-            font-size: 14px;
-            color: #6c757d;
-        }
-        
-        .expand-chart-btn:hover {
-            color: #0d6efd;
-        }
 
-        /* Add these styles to your existing CSS */
-        .verification-countdown {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.25rem 0.5rem;
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 0.25rem;
-            font-size: 0.875rem;
-            color: #6c757d;
-            margin-right: 0.5rem;
-        }
-
-        .verification-countdown i {
-            margin-right: 0.5rem;
-            color: #0d6efd;
-        }
-
-        .resend-verification-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .resend-verification-btn i {
-            font-size: 0.875rem;
-        }
-
-        /* Add these styles to your existing CSS */
         .notification-settings-table {
             background: white;
             border-radius: 0.5rem;
@@ -1175,7 +1256,6 @@ try {
             color: #0d6efd;
         }
 
-        /* Card styling for the notification settings section */
         .notification-settings-card {
             background: white;
             border-radius: 0.5rem;
@@ -1199,95 +1279,132 @@ try {
         .notification-settings-card .card-body {
             padding: 1.25rem;
         }
+
+        @media (max-width: 768px) {
+            #sidebar {
+                margin-left: -250px;
+            }
+            #sidebar.active {
+                margin-left: 0;
+            }
+            #content {
+                margin-left: 0;
+            }
+            #content.active {
+                margin-left: 250px;
+            }
+        }
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-    <div class="container">
-            <a class="navbar-brand" href="dashboard2.php">Status Page</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link active" href="dashboard2.php">Dashboard</a>
-                    </li>
-                    <?php if (isset($_SESSION['is_admin']) && $_SESSION['is_admin'] == 1): ?>
-                    <li class="nav-item">
-                        <a class="nav-link" href="admin.php">Admin Panel</a>
-                    </li>
-                    <?php endif; ?>
-                </ul>
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="logout.php">Logout</a>
-                    </li>
-                </ul>
+    <div class="wrapper">
+        <!-- Sidebar -->
+        <nav id="sidebar">
+            <div class="sidebar-header">
+                <h3>Status Page</h3>
             </div>
-        </div>
-    </nav>
 
-    <div class="container mt-4">
-        <?php if($message): ?>
-            <div class="message success"><?php echo $message; ?></div>
-        <?php endif; ?>
+            <ul class="list-unstyled components">
+                <li class="nav-item active">
+                    <a class="nav-link" href="dashboard2.php">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="passkeys.php">
+                        <i class="fas fa-key"></i>
+                        <span>Passkeys</span>
+                    </a>
+                </li>
+                <?php if (isset($_SESSION['is_admin']) && $_SESSION['is_admin'] == 1): ?>
+                <li class="nav-item">
+                    <a class="nav-link" href="admin.php">
+                        <i class="fas fa-cog"></i>
+                        <span>Admin</span>
+                    </a>
+                </li>
+                <?php endif; ?>
+            </ul>
+        </nav>
 
-        <?php if($error): ?>
-            <div class="message error"><?php echo $error; ?></div>
-        <?php endif; ?>
-
-        <!-- Current Tier and Usage -->
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0">Current Plan</h5>
-            </div>
-                    <div class="card-body">
-                        <h3><?php echo htmlspecialchars($userTier['name']); ?></h3>
-                        <?php if (isset($userTier['end_date'])): ?>
-                            <p class="text-muted">Valid until: <?php echo date('Y-m-d', strtotime($userTier['end_date'])); ?></p>
-                        <?php endif; ?>
-            </div>
-            </div>
-            </div>
-            <div class="col-md-8">
-                <div class="card">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0">Usage</h5>
+        <!-- Page Content -->
+        <div id="content">
+            <nav class="navbar navbar-expand-lg navbar-light">
+                <div class="container-fluid">
+                    <button type="button" id="sidebarCollapse" class="btn btn-primary">
+                        <i class="fas fa-align-left"></i>
+                    </button>
+                    <div class="ms-auto">
+                        <a href="logout.php" class="btn btn-outline-danger">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
                     </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-4">
-                                <div class="usage-card">
-                                    <div class="usage-title">Status Pages</div>
-                                    <div class="usage-value"><?php echo $usage['status_pages_count']; ?> / <?php echo $userTier['max_status_pages']; ?></div>
-                                    <div class="progress">
-                                        <div class="progress-bar" role="progressbar" 
-                                             style="width: <?php echo min(100, ($usage['status_pages_count'] / $userTier['max_status_pages']) * 100); ?>%">
+                </div>
+            </nav>
+
+            <div class="container-fluid">
+                <?php if($message): ?>
+                    <div class="alert alert-success"><?php echo $message; ?></div>
+                <?php endif; ?>
+
+                <?php if($error): ?>
+                    <div class="alert alert-danger"><?php echo $error; ?></div>
+                <?php endif; ?>
+
+                <!-- Current Tier and Usage -->
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Current Plan</h5>
+                            </div>
+                            <div class="card-body">
+                                <h3><?php echo htmlspecialchars($userTier['name']); ?></h3>
+                                <?php if (isset($userTier['end_date'])): ?>
+                                    <p class="text-muted">Valid until: <?php echo date('Y-m-d', strtotime($userTier['end_date'])); ?></p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Usage</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="usage-card">
+                                            <div class="usage-title">Status Pages</div>
+                                            <div class="usage-value"><?php echo $usage['status_pages_count']; ?> / <?php echo $userTier['max_status_pages']; ?></div>
+                                            <div class="progress">
+                                                <div class="progress-bar" role="progressbar" 
+                                                     style="width: <?php echo min(100, ($usage['status_pages_count'] / $userTier['max_status_pages']) * 100); ?>%">
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="usage-card">
-                                    <div class="usage-title">Sensors</div>
-                                    <div class="usage-value"><?php echo $usage['sensors_count']; ?> / <?php echo $userTier['max_sensors']; ?></div>
-                                    <div class="progress">
-                                        <div class="progress-bar" role="progressbar" 
-                                             style="width: <?php echo min(100, ($usage['sensors_count'] / $userTier['max_sensors']) * 100); ?>%">
+                                    <div class="col-md-4">
+                                        <div class="usage-card">
+                                            <div class="usage-title">Sensors</div>
+                                            <div class="usage-value"><?php echo $usage['sensors_count']; ?> / <?php echo $userTier['max_sensors']; ?></div>
+                                            <div class="progress">
+                                                <div class="progress-bar" role="progressbar" 
+                                                     style="width: <?php echo min(100, ($usage['sensors_count'] / $userTier['max_sensors']) * 100); ?>%">
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <div class="usage-card">
-                                    <div class="usage-title">Email Subscribers</div>
-                                    <div class="usage-value"><?php echo $usage['email_subscribers_count']; ?> / <?php echo $userTier['max_email_subscribers']; ?></div>
-                                    <div class="progress">
-                                        <div class="progress-bar" role="progressbar" 
-                                             style="width: <?php echo min(100, ($usage['email_subscribers_count'] / $userTier['max_email_subscribers']) * 100); ?>%">
+                                    <div class="col-md-4">
+                                        <div class="usage-card">
+                                            <div class="usage-title">Email Subscribers</div>
+                                            <div class="usage-value"><?php echo $usage['email_subscribers_count']; ?> / <?php echo $userTier['max_email_subscribers']; ?></div>
+                                            <div class="progress">
+                                                <div class="progress-bar" role="progressbar" 
+                                                     style="width: <?php echo min(100, ($usage['email_subscribers_count'] / $userTier['max_email_subscribers']) * 100); ?>%">
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1295,98 +1412,96 @@ try {
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Main Content Tabs -->
-        <ul class="nav nav-pills nav-fill mb-4">
-            <li class="nav-item">
-                <a class="nav-link" href="#overview">Overview</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="#sensors_tab">Sensors</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="#incidents_tab">Incidents</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="#maintenance_tab">Maintenance</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="#status_pages_tab">Status Pages</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="#domains_tab">Domains</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" href="#settings_tab">Settings</a>
-            </li>
-        </ul>
+                <!-- Main Content Tabs -->
+                <ul class="nav nav-pills nav-fill mb-4">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="#overview">Overview</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#sensors_tab">Sensors</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#incidents_tab">Incidents</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#maintenance_tab">Maintenance</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#status_pages_tab">Status Pages</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#domains_tab">Domains</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#settings_tab">Settings</a>
+                    </li>
+                </ul>
 
-        <!-- Content Sections -->
-        <!-- Overview Section -->
-        <div id="overview" class="mb-5">
-            <h2 class="border-bottom pb-2 mb-4">Overview</h2>
-            <!-- Quick Actions -->
-            <div class="row mb-4">
-                <div class="col-md-12">
-                    <div class="card">
+                <!-- Content Sections -->
+                <!-- Overview Section -->
+                <div id="overview" class="mb-5">
+                    <h2 class="border-bottom pb-2 mb-4">Overview</h2>
+                    <!-- Quick Actions -->
+                    <div class="row mb-4">
+                        <div class="col-md-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="card-title mb-0">Quick Actions</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-3">
+                                            <button type="button" class="btn btn-primary w-100 mb-2 <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'btn-disabled' : ''; ?>" 
+                                                    data-bs-toggle="modal" data-bs-target="#addStatusPageModal"
+                                                    <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'disabled' : ''; ?>>
+                                                <i class="fas fa-plus-circle"></i> Create Status Page
+                                            </button>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <button type="button" class="btn btn-success w-100 mb-2 <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'btn-disabled' : ''; ?>" 
+                                                    data-bs-toggle="modal" data-bs-target="#addSensorModal"
+                                                    <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'disabled' : ''; ?>>
+                                                <i class="fas fa-plus-circle"></i> Add Sensor
+                                            </button>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <button type="button" class="btn btn-warning w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addMaintenanceModal">
+                                                <i class="fas fa-tools"></i> Schedule Maintenance
+                                            </button>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <button type="button" class="btn btn-danger w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addIncidentModal">
+                                                <i class="fas fa-exclamation-triangle"></i> Report Incident
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sensors Section -->
+                <div id="sensors_tab" class="mb-5">
+                    <h2 class="border-bottom pb-2 mb-4">Sensors</h2>
+                    <div class="card mb-4">
                         <div class="card-header">
-                            <h5 class="card-title mb-0">Quick Actions</h5>
+                            <h6 class="m-0 font-weight-bold text-primary">Sensors</h6>
                         </div>
                         <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-3">
-                                    <button type="button" class="btn btn-primary w-100 mb-2 <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'btn-disabled' : ''; ?>" 
-                                            data-bs-toggle="modal" data-bs-target="#addStatusPageModal"
-                                            <?php echo $usage['status_pages_count'] >= $userTier['max_status_pages'] ? 'disabled' : ''; ?>>
-                                        <i class="bi bi-plus-circle"></i> Create Status Page
-                                    </button>
-                                </div>
-                                <div class="col-md-3">
-                                    <button type="button" class="btn btn-success w-100 mb-2 <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'btn-disabled' : ''; ?>" 
-                                            data-bs-toggle="modal" data-bs-target="#addSensorModal"
-                                            <?php echo $usage['sensors_count'] >= $userTier['max_sensors'] ? 'disabled' : ''; ?>>
-                                        <i class="bi bi-plus-circle"></i> Add Sensor
-                                    </button>
-                                </div>
-                                <div class="col-md-3">
-                                    <button type="button" class="btn btn-warning w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addMaintenanceModal">
-                                        <i class="bi bi-tools"></i> Schedule Maintenance
-                                    </button>
-                                </div>
-                                <div class="col-md-3">
-                                    <button type="button" class="btn btn-danger w-100 mb-2" data-bs-toggle="modal" data-bs-target="#addIncidentModal">
-                                        <i class="bi bi-exclamation-triangle"></i> Report Incident
-                                    </button>
-                                </div>
+                            <?php if (count($sensors) < $userTier['max_sensors']): ?>
+                            <button type="button" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#addSensorModal">
+                                <i class="bi bi-plus-circle"></i> Add Sensor
+                            </button>
+                            <?php else: ?>
+                            <div class="alert alert-warning mb-3">
+                                You have reached your sensor limit (<?php echo $userTier['max_sensors']; ?>). Upgrade your plan to add more sensors.
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Sensors Section -->
-        <div id="sensors_tab" class="mb-5">
-            <h2 class="border-bottom pb-2 mb-4">Sensors</h2>
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h6 class="m-0 font-weight-bold text-primary">Sensors</h6>
-                </div>
-                <div class="card-body">
-                    <?php if (count($sensors) < $userTier['max_sensors']): ?>
-                    <button type="button" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#addSensorModal">
-                        <i class="bi bi-plus-circle"></i> Add Sensor
-                    </button>
-                    <?php else: ?>
-                    <div class="alert alert-warning mb-3">
-                        You have reached your sensor limit (<?php echo $userTier['max_sensors']; ?>). Upgrade your plan to add more sensors.
-                    </div>
-                    <?php endif; ?>
-                    
-                    <div class="table-responsive">
-                        <table class="table table-striped">
+                            <?php endif; ?>
+                            
+                            <div class="table-responsive">
+                                <table class="table table-striped">
             <thead>
                 <tr>
                     <th>Name</th>
@@ -1461,21 +1576,21 @@ try {
                                 <?php } ?>
             </tbody>
         </table>
-                </div>
-                </div>
-                </div>
-                </div>
+                        </div>
+                    </div>
+                    </div>
+                    </div>
 
-        <!-- Incidents Section -->
-        <div id="incidents_tab" class="mb-5">
-            <h2 class="border-bottom pb-2 mb-4">Incidents</h2>
-            <div class="card shadow-sm mb-4">
-                <div class="card-header">
-                    <h5 class="m-0">Incidents</h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table">
+                <!-- Incidents Section -->
+                <div id="incidents_tab" class="mb-5">
+                    <h2 class="border-bottom pb-2 mb-4">Incidents</h2>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header">
+                            <h5 class="m-0">Incidents</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table">
                 <thead>
                     <tr>
                                     <th>Date</th>
@@ -1507,21 +1622,21 @@ try {
                     <?php endforeach; ?>
                 </tbody>
             </table>
-        </div>
-                </div>
-                </div>
-                </div>
+                            </div>
+                        </div>
+                    </div>
+                    </div>
 
-        <!-- Maintenance Section -->
-        <div id="maintenance_tab" class="mb-5">
-            <h2 class="border-bottom pb-2 mb-4">Maintenance</h2>
-            <div class="card shadow-sm mb-4">
-                <div class="card-header">
-                    <h5 class="m-0">Maintenance</h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table">
+                <!-- Maintenance Section -->
+                <div id="maintenance_tab" class="mb-5">
+                    <h2 class="border-bottom pb-2 mb-4">Maintenance</h2>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header">
+                            <h5 class="m-0">Maintenance</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table">
                 <thead>
                     <tr>
                                     <th>Date</th>
@@ -1553,21 +1668,21 @@ try {
                                         <?php endforeach; ?>
                 </tbody>
             </table>
-        </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                </div>
-        </div>
 
-        <!-- Status Pages Section -->
-        <div id="status_pages_tab" class="mb-5">
-            <h2 class="border-bottom pb-2 mb-4">Status Pages</h2>
-            <div class="card shadow-sm mb-4">
-                <div class="card-header">
-                    <h5 class="m-0">Status Pages</h5>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table">
+                <!-- Status Pages Section -->
+                <div id="status_pages_tab" class="mb-5">
+                    <h2 class="border-bottom pb-2 mb-4">Status Pages</h2>
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header">
+                            <h5 class="m-0">Status Pages</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table">
         <thead>
             <tr>
                                     <th>Title</th>
@@ -1591,30 +1706,30 @@ try {
                     <?php endforeach; ?>
                 </tbody>
             </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        
-        <!-- Custom Domains Section -->
-        <div id="domains_tab" class="mb-5">
-            <h2 class="border-bottom pb-2 mb-4">Custom Domains</h2>
-            <div class="card shadow-sm">
-                <div class="card-header">
-                    <h5 class="m-0">Custom Domains</h5>
-                </div>
-                <div class="card-body">
-                    <!-- Domain hinzufügen -->
-                    <form method="POST" class="mb-4">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <div class="row align-items-end">
-                            <div class="col-md-4">
+                
+                <!-- Custom Domains Section -->
+                <div id="domains_tab" class="mb-5">
+                    <h2 class="border-bottom pb-2 mb-4">Custom Domains</h2>
+                    <div class="card shadow-sm">
+                        <div class="card-header">
+                            <h5 class="m-0">Custom Domains</h5>
+                        </div>
+                        <div class="card-body">
+                            <!-- Domain hinzufügen -->
+                            <form method="POST" class="mb-4">
+                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                <div class="row align-items-end">
+                                    <div class="col-md-4">
                 <div class="form-group">
                                     <label for="domain">Domain:</label>
                                     <input type="text" name="domain" id="domain" class="form-control" placeholder="e.g. status.mydomain.com" required>
                 </div>
-                            </div>
-                            <div class="col-md-4">
+                                    </div>
+                                    <div class="col-md-4">
                 <div class="form-group">
                                     <label for="domain_status_page_id">Status Page:</label>
                                     <select name="domain_status_page_id" id="domain_status_page_id" class="form-control" required>
@@ -1635,25 +1750,25 @@ try {
                     </select>
                 </div>
                 </div>
-                            <div class="col-md-4">
-                                <button type="submit" name="add_domain" class="btn btn-success w-100">Add Domain</button>
+                                    <div class="col-md-4">
+                                        <button type="submit" name="add_domain" class="btn btn-success w-100">Add Domain</button>
         </div>
-                        </div>
-                    </form>
+                                </div>
+                            </form>
 
-                    <h6 class="mb-3 mt-4 border-bottom pb-2">Instructions for setting up your own domain:</h6>
-                    <ol class="mb-4">
-                        <li>Add your domain above (e.g. status.mydomain.com)</li>
-                        <li>Create a CNAME record in your DNS that points to <strong><?php echo $_SERVER['HTTP_HOST']; ?></strong></li>
-                        <li>Wait for DNS changes to take effect (may take up to 24 hours)</li>
-                        <li>Click "Verify" to check if the CNAME is set up correctly</li>
-                        <li>After successful verification, your domain is ready to use!</li>
-                    </ol>
+                            <h6 class="mb-3 mt-4 border-bottom pb-2">Instructions for setting up your own domain:</h6>
+                            <ol class="mb-4">
+                                <li>Add your domain above (e.g. status.mydomain.com)</li>
+                                <li>Create a CNAME record in your DNS that points to <strong><?php echo $_SERVER['HTTP_HOST']; ?></strong></li>
+                                <li>Wait for DNS changes to take effect (may take up to 24 hours)</li>
+                                <li>Click "Verify" to check if the CNAME is set up correctly</li>
+                                <li>After successful verification, your domain is ready to use!</li>
+                            </ol>
 
-                    <!-- Bestehende Domains anzeigen -->
-                    <h6 class="border-bottom pb-2 mb-4">Your Domains</h6>
-                    <div class="table-responsive">
-                        <table class="table table-hover">
+                            <!-- Bestehende Domains anzeigen -->
+                            <h6 class="border-bottom pb-2 mb-4">Your Domains</h6>
+                            <div class="table-responsive">
+                                <table class="table table-hover">
         <thead>
             <tr>
                                     <th>Domain</th>
@@ -1725,209 +1840,211 @@ try {
                                 ?>
                             </tbody>
                         </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Settings Section -->
-        <div id="settings_tab" class="mb-5">
-            <h2 class="border-bottom pb-2 mb-4">Settings</h2>
-            <div class="card shadow-sm">
-                <div class="card-header">
-                    <h5 class="m-0">Settings</h5>
-                </div>
-                <div class="card-body">
-                    <form method="POST" class="mb-4">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <div class="form-group mb-3">
-                            <label for="email">Email Address:</label>
-                            <input type="email" name="email" id="email" class="form-control" value="<?php echo htmlspecialchars($_SESSION['user_email']); ?>" required>
+                <!-- Settings Section -->
+                <div id="settings_tab" class="mb-5">
+                    <h2 class="border-bottom pb-2 mb-4">Settings</h2>
+                    <div class="card shadow-sm">
+                        <div class="card-header">
+                            <h5 class="m-0">Settings</h5>
                         </div>
-                        <div class="form-group mb-3">
-                            <label for="password">New Password (leave empty to keep current):</label>
-                            <input type="password" name="password" id="password" class="form-control">
-                        </div>
-                        <div class="form-group mb-3">
-                            <label for="password_confirm">Confirm New Password:</label>
-                            <input type="password" name="password_confirm" id="password_confirm" class="form-control">
-                        </div>
-                        <button type="submit" name="update_settings" class="btn btn-primary">Save Settings</button>
-                    </form>
-                    
-                    <hr class="my-4">
-                    
-                    <h5 class="text-danger">Account löschen</h5>
-                    <p class="text-muted">Diese Aktion kann nicht rückgängig gemacht werden. Alle Ihre Daten, Status-Pages und Sensoren werden unwiderruflich gelöscht.</p>
-                    
-                    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteAccountModal">
-                        Account löschen
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Notification Settings Section -->
-        <div class="notification-settings-card">
-            <div class="card-header">
-                <h5>Notification Settings</h5>
-            </div>
-            <div class="card-body">
-                <!-- Notification Recipients -->
-                <div class="mb-4">
-                    <h6 class="border-bottom pb-2">Notification Recipients</h6>
-                    <form method="POST" action="" class="mb-3">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <div class="row align-items-end">
-                            <div class="col-md-6">
-                                <div class="form-group">
-                                    <label for="notification_email">Email Address:</label>
-                                    <input type="email" name="notification_email" id="notification_email" class="form-control" required>
+                        <div class="card-body">
+                            <form method="POST" class="mb-4">
+                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                <div class="form-group mb-3">
+                                    <label for="email">Email Address:</label>
+                                    <input type="email" name="email" id="email" class="form-control" value="<?php echo htmlspecialchars($_SESSION['user_email']); ?>" required>
                                 </div>
-                            </div>
-                            <div class="col-md-6">
-                                <button type="submit" name="add_notification_email" class="btn btn-primary">Add Recipient</button>
-                            </div>
+                                <div class="form-group mb-3">
+                                    <label for="password">New Password (leave empty to keep current):</label>
+                                    <input type="password" name="password" id="password" class="form-control">
+                                </div>
+                                <div class="form-group mb-3">
+                                    <label for="password_confirm">Confirm New Password:</label>
+                                    <input type="password" name="password_confirm" id="password_confirm" class="form-control">
+                                </div>
+                                <button type="submit" name="update_settings" class="btn btn-primary">Save Settings</button>
+                            </form>
+                            
+                            <hr class="my-4">
+                            
+                            <h5 class="text-danger">Account löschen</h5>
+                            <p class="text-muted">Diese Aktion kann nicht rückgängig gemacht werden. Alle Ihre Daten, Status-Pages und Sensoren werden unwiderruflich gelöscht.</p>
+                            
+                            <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteAccountModal">
+                                Account löschen
+                            </button>
                         </div>
-                    </form>
-
-                    <div class="table-responsive">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Email Address</th>
-                                    <th>Status</th>
-                                    <th>Added On</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php
-                                // Get notification recipients
-                                $stmt = $pdo->prepare("
-                                    SELECT en.*, 
-                                           CASE 
-                                               WHEN en.verified = 1 THEN 'Verified'
-                                               WHEN en.verification_sent = 1 THEN 'Pending Verification'
-                                               ELSE 'Not Verified'
-                                           END as status_text
-                                    FROM email_notification_recipients en
-                                    WHERE en.user_id = ?
-                                    ORDER BY en.created_at DESC
-                                ");
-                                $stmt->execute([$_SESSION['user_id']]);
-                                $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                                foreach ($recipients as $recipient) {
-                                    $statusClass = $recipient['verified'] ? 'success' : 
-                                        ($recipient['verification_sent'] ? 'warning' : 'danger');
-                                    echo '<tr>';
-                                    echo '<td>' . htmlspecialchars($recipient['email']) . '</td>';
-                                    echo '<td><span class="badge bg-' . $statusClass . '">' . $recipient['status_text'] . '</span></td>';
-                                    echo '<td>' . date('Y-m-d H:i', strtotime($recipient['created_at'])) . '</td>';
-                                    echo '<td>';
-                                    if (!$recipient['verified']) {
-                                        // Check if we need to show countdown
-                                        $stmt = $pdo->prepare("
-                                            SELECT TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(updated_at, INTERVAL 5 MINUTE)) as remaining_seconds
-                                            FROM email_notification_recipients 
-                                            WHERE id = ? AND verification_sent = 1 
-                                            AND updated_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
-                                        ");
-                                        $stmt->execute([$recipient['id']]);
-                                        $remaining = $stmt->fetch(PDO::FETCH_ASSOC)['remaining_seconds'];
-                                        
-                                        if ($remaining > 0) {
-                                            $endTime = time() + $remaining;
-                                            echo '<span class="verification-countdown" data-end-time="' . $endTime . '">';
-                                            echo '<i class="bi bi-clock"></i>';
-                                            echo 'Please wait: ' . floor($remaining / 60) . ':' . str_pad($remaining % 60, 2, '0', STR_PAD_LEFT);
-                                            echo '</span>';
-                                            echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1 resend-verification-btn" style="display:none;">';
-                                            echo '<i class="bi bi-envelope"></i> Resend Verification</a>';
-                                        } else {
-                                            echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1 resend-verification-btn">';
-                                            echo '<i class="bi bi-envelope"></i> Resend Verification</a>';
-                                        }
-                                    }
-                                    echo '<a href="?delete_recipient=' . $recipient['id'] . '&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to remove this recipient?\');">';
-                                    echo '<i class="bi bi-trash"></i> Remove</a>';
-                                    echo '</td>';
-                                    echo '</tr>';
-                                }
-                                ?>
-                            </tbody>
-                        </table>
                     </div>
                 </div>
 
-                <!-- Sensor Notification Settings -->
-                <h6 class="border-bottom pb-2">Sensor Notification Settings</h6>
-                <form method="POST" action="">
-                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <div class="table-responsive">
-                        <table class="table notification-settings-table">
-                            <thead>
-                                <tr>
-                                    <th>Sensor</th>
-                                    <th>Downtime Notifications</th>
-                                    <th>SSL Certificate Warnings</th>
-                                    <th>SSL Warning Days</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($notificationSettings as $setting): ?>
-                                <tr>
-                                    <td>
-                                        <div class="sensor-name">
-                                            <i class="bi bi-hdd-network"></i>
-                                            <?php echo htmlspecialchars($setting['sensor_name']); ?>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="form-check">
-                                            <input type="checkbox" class="form-check-input" 
-                                                   name="settings[<?php echo $setting['sensor_id']; ?>][enable_downtime]" 
-                                                   id="downtime_<?php echo $setting['sensor_id']; ?>"
-                                                   <?php echo $setting['enable_downtime_notifications'] ? 'checked' : ''; ?>>
-                                            <label class="form-check-label" for="downtime_<?php echo $setting['sensor_id']; ?>">
-                                                Enable
-                                            </label>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="form-check">
-                                            <input type="checkbox" class="form-check-input" 
-                                                   name="settings[<?php echo $setting['sensor_id']; ?>][enable_ssl]" 
-                                                   id="ssl_<?php echo $setting['sensor_id']; ?>"
-                                                   <?php echo $setting['enable_ssl_notifications'] ? 'checked' : ''; ?>>
-                                            <label class="form-check-label" for="ssl_<?php echo $setting['sensor_id']; ?>">
-                                                Enable
-                                            </label>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div class="input-group">
-                                            <input type="number" class="form-control" 
-                                                   name="settings[<?php echo $setting['sensor_id']; ?>][ssl_warning_days]" 
-                                                   value="<?php echo htmlspecialchars($setting['ssl_warning_days'] ?? '30'); ?>" 
-                                                   min="1" max="90">
-                                            <span class="input-group-text">days</span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <button type="submit" name="update_notifications" class="btn btn-update">
-                                            <i class="bi bi-save"></i>
-                                            Update
-                                        </button>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                <!-- Notification Settings Section -->
+                <div class="notification-settings-card">
+                    <div class="card-header">
+                        <h5>Notification Settings</h5>
                     </div>
-                </form>
+                    <div class="card-body">
+                        <!-- Notification Recipients -->
+                        <div class="mb-4">
+                            <h6 class="border-bottom pb-2">Notification Recipients</h6>
+                            <form method="POST" action="" class="mb-3">
+                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                                <div class="row align-items-end">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="notification_email">Email Address:</label>
+                                            <input type="email" name="notification_email" id="notification_email" class="form-control" required>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <button type="submit" name="add_notification_email" class="btn btn-primary">Add Recipient</button>
+                                    </div>
+                                </div>
+                            </form>
+
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Email Address</th>
+                                            <th>Status</th>
+                                            <th>Added On</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php
+                                        // Get notification recipients
+                                        $stmt = $pdo->prepare("
+                                            SELECT en.*, 
+                                                   CASE 
+                                                       WHEN en.verified = 1 THEN 'Verified'
+                                                       WHEN en.verification_sent = 1 THEN 'Pending Verification'
+                                                       ELSE 'Not Verified'
+                                                   END as status_text
+                                            FROM email_notification_recipients en
+                                            WHERE en.user_id = ?
+                                            ORDER BY en.created_at DESC
+                                        ");
+                                        $stmt->execute([$_SESSION['user_id']]);
+                                        $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                                        foreach ($recipients as $recipient) {
+                                            $statusClass = $recipient['verified'] ? 'success' : 
+                                                ($recipient['verification_sent'] ? 'warning' : 'danger');
+                                            echo '<tr>';
+                                            echo '<td>' . htmlspecialchars($recipient['email']) . '</td>';
+                                            echo '<td><span class="badge bg-' . $statusClass . '">' . $recipient['status_text'] . '</span></td>';
+                                            echo '<td>' . date('Y-m-d H:i', strtotime($recipient['created_at'])) . '</td>';
+                                            echo '<td>';
+                                            if (!$recipient['verified']) {
+                                                // Check if we need to show countdown
+                                                $stmt = $pdo->prepare("
+                                                    SELECT TIMESTAMPDIFF(SECOND, NOW(), DATE_ADD(updated_at, INTERVAL 5 MINUTE)) as remaining_seconds
+                                                    FROM email_notification_recipients 
+                                                    WHERE id = ? AND verification_sent = 1 
+                                                    AND updated_at > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+                                                ");
+                                                $stmt->execute([$recipient['id']]);
+                                                $remaining = $stmt->fetch(PDO::FETCH_ASSOC)['remaining_seconds'];
+                                                
+                                                if ($remaining > 0) {
+                                                    $endTime = time() + $remaining;
+                                                    echo '<span class="verification-countdown" data-end-time="' . $endTime . '">';
+                                                    echo '<i class="bi bi-clock"></i>';
+                                                    echo 'Please wait: ' . floor($remaining / 60) . ':' . str_pad($remaining % 60, 2, '0', STR_PAD_LEFT);
+                                                    echo '</span>';
+                                                    echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1 resend-verification-btn" style="display:none;">';
+                                                    echo '<i class="bi bi-envelope"></i> Resend Verification</a>';
+                                                } else {
+                                                    echo '<a href="?resend_verification=' . $recipient['id'] . '" class="btn btn-sm btn-info me-1 resend-verification-btn">';
+                                                    echo '<i class="bi bi-envelope"></i> Resend Verification</a>';
+                                                }
+                                            }
+                                            echo '<a href="?delete_recipient=' . $recipient['id'] . '&confirm=true" class="btn btn-sm btn-danger" onclick="return confirm(\'Are you sure you want to remove this recipient?\');">';
+                                            echo '<i class="bi bi-trash"></i> Remove</a>';
+                                            echo '</td>';
+                                            echo '</tr>';
+                                        }
+                                        ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Sensor Notification Settings -->
+                        <h6 class="border-bottom pb-2">Sensor Notification Settings</h6>
+                        <form method="POST" action="">
+                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                            <div class="table-responsive">
+                                <table class="table notification-settings-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Sensor</th>
+                                            <th>Downtime Notifications</th>
+                                            <th>SSL Certificate Warnings</th>
+                                            <th>SSL Warning Days</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($notificationSettings as $setting): ?>
+                                        <tr>
+                                            <td>
+                                                <div class="sensor-name">
+                                                    <i class="bi bi-hdd-network"></i>
+                                                    <?php echo htmlspecialchars($setting['sensor_name']); ?>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="form-check">
+                                                    <input type="checkbox" class="form-check-input" 
+                                                           name="settings[<?php echo $setting['sensor_id']; ?>][enable_downtime]" 
+                                                           id="downtime_<?php echo $setting['sensor_id']; ?>"
+                                                           <?php echo $setting['enable_downtime_notifications'] ? 'checked' : ''; ?>>
+                                                    <label class="form-check-label" for="downtime_<?php echo $setting['sensor_id']; ?>">
+                                                        Enable
+                                                    </label>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="form-check">
+                                                    <input type="checkbox" class="form-check-input" 
+                                                           name="settings[<?php echo $setting['sensor_id']; ?>][enable_ssl]" 
+                                                           id="ssl_<?php echo $setting['sensor_id']; ?>"
+                                                           <?php echo $setting['enable_ssl_notifications'] ? 'checked' : ''; ?>>
+                                                    <label class="form-check-label" for="ssl_<?php echo $setting['sensor_id']; ?>">
+                                                        Enable
+                                                    </label>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="input-group">
+                                                    <input type="number" class="form-control" 
+                                                           name="settings[<?php echo $setting['sensor_id']; ?>][ssl_warning_days]" 
+                                                           value="<?php echo htmlspecialchars($setting['ssl_warning_days'] ?? '30'); ?>" 
+                                                           min="1" max="90">
+                                                    <span class="input-group-text">days</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <button type="submit" name="update_notifications" class="btn btn-update">
+                                                    <i class="bi bi-save"></i>
+                                                    Update
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -2290,523 +2407,19 @@ try {
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
-        // Global variables for the chart
-        let responseTimeChart = null;
-        let currentSensorId = null;
-        let currentChartDays = 7;
-        let sparklineCharts = {};
-        
-        // Globale Variable für aktives Modal
-        let responseTimeChartModal = null;
-        
-        // Function to load and display the detailed chart in modal
-        function loadResponseTimeChart(sensorId, sensorName) {
-            currentSensorId = sensorId;
-            
-            // Update modal title
-            document.getElementById('responseTimeChartModalLabel').textContent = `Response Time History: ${sensorName}`;
-            
-            // Zerstöre altes Chart falls es existiert
-            if (responseTimeChart !== null && typeof responseTimeChart !== 'undefined') {
-                responseTimeChart.destroy();
-                responseTimeChart = null;
-            }
-            
-            // Show the modal
-            const modalEl = document.getElementById('responseTimeChartModal');
-            
-            // Event-Listener hinzufügen für das Modal-Schließen
-            modalEl.addEventListener('hidden.bs.modal', function() {
-                // Chart zerstören, wenn Modal geschlossen wird
-                if (responseTimeChart !== null && typeof responseTimeChart !== 'undefined') {
-                    responseTimeChart.destroy();
-                    responseTimeChart = null;
-                }
-            }, { once: true }); // Nur einmal ausführen
-            
-            responseTimeChartModal = new bootstrap.Modal(modalEl);
-            responseTimeChartModal.show();
-            
-            // Fetch data and render chart
-            fetchResponseTimeData(sensorId, currentChartDays);
-        }
-        
-        // Function to update the chart period
-        function updateChartPeriod(days) {
-            // Update active button state
-            document.querySelectorAll('#responseTimeChartModal .btn-group .btn').forEach(btn => {
-                btn.classList.remove('active');
+        $(document).ready(function() {
+            // Sidebar Toggle
+            $('#sidebarCollapse').on('click', function() {
+                $('#sidebar').toggleClass('active');
+                $('#content').toggleClass('active');
             });
-            event.target.classList.add('active');
-            
-            // Update days and reload data
-            currentChartDays = days;
-            fetchResponseTimeData(currentSensorId, days);
-        }
-        
-        // Function to fetch response time data from the server
-        function fetchResponseTimeData(sensorId, days) {
-            fetch(`get_response_times.php?sensor_id=${sensorId}&days=${days}`, {
-                method: 'GET',
-                credentials: 'same-origin', // Cookies senden für Authentifizierung
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(response => {
-                if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error('Authentifizierungsfehler. Bitte aktualisieren Sie die Seite.');
-                    }
-                    throw new Error('Serverfehler: ' + response.status);
-                }
-                return response.json();
-            })
-                .then(data => {
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                renderResponseTimeChart(data);
-                updateResponseTimeStats(data);
-                updateRecentChecksTable(data);
-            })
-            .catch(error => {
-                console.error('Error fetching response time data:', error);
-                alert('Failed to load response time data: ' + error.message);
-            });
-        }
-        
-        // Function to render response time chart
-        function renderResponseTimeChart(data) {
-            try {
-                const ctx = document.getElementById('responseTimeChart');
-                if (!ctx) {
-                    console.error('Canvas element responseTimeChart not found!');
-                    return;
-                }
-                
-                // Zuerst das alte Chart sauber zerstören, falls es existiert
-                if (responseTimeChart !== null && typeof responseTimeChart !== 'undefined') {
-                    responseTimeChart.destroy();
-                    responseTimeChart = null;
-                }
-                
-                // Neue Chart-Context abrufen
-                const context = ctx.getContext('2d');
-                
-                // Prepare data for chart
-                const labels = data.map(item => new Date(item.check_time));
-                const responseTimes = data.map(item => item.response_time * 1000); // Convert to ms
-                const statuses = data.map(item => item.status);
-                
-                // Create datasets with point colors based on status
-                const pointColors = data.map(item => item.status === 'up' ? '#198754' : '#dc3545');
-                
-                // Create the chart
-                responseTimeChart = new Chart(context, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                label: 'Response Time (ms)',
-                                data: responseTimes,
-                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                                borderColor: 'rgba(54, 162, 235, 1)',
-                                borderWidth: 2,
-                                tension: 0.2,
-                                pointRadius: 3,
-                                pointBackgroundColor: pointColors
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: {
-                            mode: 'index',
-                            intersect: false
-                        },
-                        plugins: {
-                            tooltip: {
-                                callbacks: {
-                                    title: function(tooltipItems) {
-                                        const date = new Date(tooltipItems[0].label);
-                                        return date.toLocaleString();
-                                    },
-                                    label: function(context) {
-                                        const index = context.dataIndex;
-                                        const status = statuses[index];
-                                        return [
-                                            `Response Time: ${context.raw.toFixed(2)} ms`,
-                                            `Status: ${status === 'up' ? 'Online' : 'Down'}`
-                                        ];
-                                    }
-                                }
-                            }
-                        },
-                        scales: {
-                            x: {
-                                type: 'time',
-                                time: {
-                                    unit: 'day',
-                                    displayFormats: {
-                                        day: 'MMM d'
-                                    },
-                                    tooltipFormat: 'MMM d, HH:mm'
-                                },
-                                title: {
-                                    display: true,
-                                    text: 'Date/Time'
-                                }
-                            },
-                            y: {
-                                beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: 'Response Time (ms)'
-                                }
-                            }
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error('Error rendering response time chart:', error);
-                alert('Error rendering chart: ' + error.message);
-                
-                // Versuche, das Chart vollständig zurückzusetzen
-                responseTimeChart = null;
-            }
-        }
-        
-        // Function to update response time statistics
-        function updateResponseTimeStats(data) {
-            if (!data || data.length === 0) {
-                document.getElementById('uptime-stat').textContent = 'N/A';
-                document.getElementById('avg-response-stat').textContent = 'N/A';
-                document.getElementById('fastest-response').textContent = 'N/A';
-                document.getElementById('slowest-response').textContent = 'N/A';
-                document.getElementById('total-checks').textContent = '0';
-                document.getElementById('total-outages').textContent = '0';
-                return;
-            }
-            
-            // Calculate statistics
-            const responseTimes = data.map(item => item.response_time * 1000);
-            const upChecks = data.filter(item => item.status === 'up').length;
-            const totalChecks = data.length;
-            const uptimePercentage = (upChecks / totalChecks * 100).toFixed(2);
-            const avgResponseTime = (responseTimes.reduce((a, b) => a + b, 0) / totalChecks).toFixed(2);
-            const fastestResponse = Math.min(...responseTimes).toFixed(2);
-            const slowestResponse = Math.max(...responseTimes).toFixed(2);
-            const outages = totalChecks - upChecks;
-            
-            // Update DOM elements
-            document.getElementById('uptime-stat').textContent = `${uptimePercentage}%`;
-            document.getElementById('avg-response-stat').textContent = `${avgResponseTime} ms`;
-            document.getElementById('fastest-response').textContent = `${fastestResponse} ms`;
-            document.getElementById('slowest-response').textContent = `${slowestResponse} ms`;
-            document.getElementById('total-checks').textContent = totalChecks;
-            document.getElementById('total-outages').textContent = outages;
-        }
-        
-        // Function to update recent checks table
-        function updateRecentChecksTable(data) {
-            const tableBody = document.getElementById('recent-checks-table').querySelector('tbody');
-            tableBody.innerHTML = '';
-            
-            // Take only the last 10 checks, in reverse chronological order
-            const recentChecks = [...data].reverse().slice(0, 10);
-            
-            recentChecks.forEach(check => {
-                const row = document.createElement('tr');
-                
-                // Format date
-                const checkTime = new Date(check.check_time);
-                const formattedTime = checkTime.toLocaleString();
-                
-                // Format status
-                const statusClass = check.status === 'up' ? 'success' : 'danger';
-                const statusText = check.status === 'up' ? 'Online' : 'Down';
-                
-                // Format response time
-                const responseTime = (check.response_time * 1000).toFixed(2);
-                
-                // Create cells
-                row.innerHTML = `
-                    <td>${formattedTime}</td>
-                    <td><span class="badge bg-${statusClass}">${statusText}</span></td>
-                    <td>${responseTime} ms</td>
-                `;
-                
-                tableBody.appendChild(row);
-            });
-        }
 
-        // Activate tooltips
-        document.addEventListener('DOMContentLoaded', function() {
-            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl)
-            });
-            
-            // Event-Listener für Sensor löschen Buttons
-            document.querySelectorAll('.delete-sensor').forEach(button => {
-                button.addEventListener('click', function() {
-                    const sensorId = this.getAttribute('data-sensor-id');
-                    if (confirm('Sind Sie sicher, dass Sie diesen Sensor löschen möchten?')) {
-                        // Erstelle ein Formular und reiche es ein
-                        const form = document.createElement('form');
-                        form.method = 'POST';
-                        form.style.display = 'none';
-                        
-                        // CSRF-Token hinzufügen
-                        const csrfToken = document.createElement('input');
-                        csrfToken.type = 'hidden';
-                        csrfToken.name = 'csrf_token';
-                        csrfToken.value = '<?php echo $_SESSION['csrf_token']; ?>';
-                        form.appendChild(csrfToken);
-                        
-                        // Sensor-ID hinzufügen
-                        const sensorIdInput = document.createElement('input');
-                        sensorIdInput.type = 'hidden';
-                        sensorIdInput.name = 'service_id';
-                        sensorIdInput.value = sensorId;
-                        form.appendChild(sensorIdInput);
-                        
-                        // Aktion hinzufügen
-                        const actionInput = document.createElement('input');
-                        actionInput.type = 'hidden';
-                        actionInput.name = 'delete_service';
-                        actionInput.value = '1';
-                        form.appendChild(actionInput);
-                        
-                        document.body.appendChild(form);
-                        form.submit();
-                    }
-                });
-            });
+            // Rest of your existing JavaScript code
+            // ... existing code ...
         });
-        
-        // Function to load sparkline data for all sensors (nur wenn explizit aufgerufen)
-        function loadAllSparklines() {
-            const sensorElements = document.querySelectorAll('.response-time-sparkline');
-            sensorElements.forEach(element => {
-                const sensorId = element.id.split('-')[1];
-                loadSparklineData(sensorId);
-            });
-        }
-        
-        // Function to load response time data for sparklines
-        function loadSparklineData(sensorId) {
-            fetch(`get_response_times.php?sensor_id=${sensorId}&days=7`, {
-                method: 'GET',
-                credentials: 'same-origin',
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Serverfehler: ' + response.status);
-                }
-                return response.json();
-            })
-                .then(data => {
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                renderSparkline(sensorId, data);
-            })
-            .catch(error => {
-                console.error('Error loading sparkline data:', error);
-                // Diskreter Fehler - keine Alert-Box anzeigen
-            });
-        }
-        
-        // Function to render a sparkline chart
-        function renderSparkline(sensorId, data) {
-            try {
-                const canvas = document.getElementById(`sparkline-${sensorId}`);
-                if (!canvas) {
-                    console.error(`Canvas element sparkline-${sensorId} not found!`);
-                    return;
-                }
-                
-                // Destroy existing chart if it exists
-                if (sparklineCharts[sensorId] !== null && typeof sparklineCharts[sensorId] !== 'undefined') {
-                    sparklineCharts[sensorId].destroy();
-                    sparklineCharts[sensorId] = null;
-                }
-                
-                // Get context
-                const ctx = canvas.getContext('2d');
-                
-                // Prepare data for chart
-                const responseTimes = data.map(item => item.response_time * 1000); // Convert to ms
-                const dates = data.map(item => new Date(item.check_time).toLocaleDateString());
-                const statuses = data.map(item => item.status);
-                
-                // Calculate gradient colors based on status
-                const gradient = ctx.createLinearGradient(0, 0, 0, 30);
-                gradient.addColorStop(0, 'rgba(13, 110, 253, 0.2)');
-                gradient.addColorStop(1, 'rgba(13, 110, 253, 0.05)');
-                
-                // Create chart
-                sparklineCharts[sensorId] = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: dates,
-                        datasets: [{
-                            data: responseTimes,
-                            borderColor: '#0d6efd',
-                            backgroundColor: gradient,
-                            borderWidth: 1.5,
-                            pointRadius: 1,
-                            pointHoverRadius: 5,
-                            pointBackgroundColor: (context) => {
-                                const status = statuses[context.dataIndex];
-                                return status === 'up' ? '#198754' : '#dc3545';
-                            },
-                            tension: 0.4,
-                            fill: true
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                display: false
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    title: (context) => {
-                                        const index = context[0].dataIndex;
-                                        return new Date(data[index].check_time).toLocaleString();
-                                    },
-                                    label: (context) => {
-                                        const index = context.dataIndex;
-                                        const status = statuses[index];
-                                        const statusText = status === 'up' ? 'Online' : 'Down';
-                                        return [
-                                            `Response: ${context.parsed.y.toFixed(2)} ms`,
-                                            `Status: ${statusText}`
-                                        ];
-                                    }
-                                }
-                            }
-                        },
-                        interaction: {
-                            intersect: false,
-                            mode: 'index'
-                        },
-                        scales: {
-                            x: {
-                                display: false
-                            },
-                            y: {
-                                display: false,
-                                beginAtZero: true
-                            }
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error(`Error rendering sparkline chart for sensor ${sensorId}:`, error);
-                // Keine Alert-Box für Sparklines, um User nicht zu stören
-                
-                // Chart zurücksetzen
-                sparklineCharts[sensorId] = null;
-            }
-        }
-        
-        // Function to toggle response time chart visibility
-        function toggleResponseTimeChart(button, sensorId, sensorName) {
-            const container = document.getElementById(`chart-container-${sensorId}`);
-            
-            // Toggle visibility
-            if (container.style.display === 'none') {
-                // Show chart
-                container.style.display = 'flex';
-                button.innerHTML = '<i class="bi bi-graph-up"></i> Verberge Grafik';
-                
-                // Load data if not loaded yet
-                if (!sparklineCharts[sensorId]) {
-                    loadSparklineData(sensorId);
-                }
-            } else {
-                // Hide chart
-                container.style.display = 'none';
-                button.innerHTML = '<i class="bi bi-graph-up"></i> Zeige Grafik';
-            }
-        }
-    </script>
-
-    <!-- Delete Account Modal -->
-    <div class="modal fade" id="deleteAccountModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-danger text-white">
-                    <h5 class="modal-title">Account löschen</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-danger">
-                        <i class="bi bi-exclamation-triangle"></i> Warnung: Diese Aktion kann nicht rückgängig gemacht werden!
-                    </div>
-                    <p>Wenn Sie Ihren Account löschen, werden alle folgenden Daten unwiderruflich gelöscht:</p>
-                    <ul>
-                        <li>Alle Status-Pages</li>
-                        <li>Alle Sensoren/Services</li>
-                        <li>Alle Incidents und Wartungen</li>
-                        <li>Alle benutzerdefinierten Domains</li>
-                        <li>Alle E-Mail-Abonnenten</li>
-                        <li>Ihre persönlichen Daten</li>
-                    </ul>
-                    <p>Bitte geben Sie Ihr Passwort ein, um die Löschung zu bestätigen:</p>
-                    <form method="POST">
-                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                        <div class="form-group mb-3">
-                            <label for="confirmation_password">Passwort:</label>
-                            <input type="password" id="confirmation_password" name="confirmation_password" class="form-control" required>
-                        </div>
-                        <button type="submit" name="delete_account" class="btn btn-danger">Account endgültig löschen</button>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Abbrechen</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
-    // Function to update countdown timers
-    function updateCountdowns() {
-        document.querySelectorAll('.verification-countdown').forEach(element => {
-            const endTime = parseInt(element.getAttribute('data-end-time'));
-            const now = Math.floor(Date.now() / 1000);
-            const remaining = endTime - now;
-            
-            if (remaining <= 0) {
-                element.closest('tr').querySelector('.resend-verification-btn').style.display = 'inline-flex';
-                element.style.display = 'none';
-            } else {
-                const minutes = Math.floor(remaining / 60);
-                const seconds = remaining % 60;
-                element.innerHTML = `<i class="bi bi-clock"></i>Please wait: ${minutes}:${seconds.toString().padStart(2, '0')}`;
-            }
-        });
-    }
-
-    // Update countdowns every second
-    setInterval(updateCountdowns, 1000);
     </script>
 </body>
 </html>

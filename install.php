@@ -775,6 +775,20 @@ try {
         }
     }
     
+    // Create passkeys table
+    $sql = "CREATE TABLE IF NOT EXISTS passkeys (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        credential_id VARCHAR(255) NOT NULL,
+        public_key TEXT NOT NULL,
+        counter INT NOT NULL DEFAULT 0,
+        device_name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TIMESTAMP NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )";
+    $pdo->query($sql);
+    
     // Installation/Aktualisierung abschließen
     echo "<script>updateProgress(100); appendLog('" . ($mode === 'update' ? 'Aktualisierung' : 'Installation') . " abgeschlossen!', 'success');</script>";
     flush();
